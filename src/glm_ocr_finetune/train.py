@@ -123,6 +123,7 @@ def main():
         dataset_path=args.train_dataset_path,
         images_root_dir=args.images_root_dir,
         validate_image_paths=args.validate_image_paths,
+        skip_missing_images=True,
     )
 
     eval_dataset = None
@@ -131,6 +132,7 @@ def main():
             dataset_path=args.eval_dataset_path,
             images_root_dir=args.images_root_dir,
             validate_image_paths=args.validate_image_paths,
+            skip_missing_images=True,
         )
 
     logger.info(

@@ -20,7 +20,7 @@ poetry run pip install flash-attn --no-build-isolation
 # ──────────────────────────────────────────────────────────────────────
 
 # ── Paths (edit these) ───────────────────────────────────────────────
-IMAGES_ROOT_DIR="${IMAGES_ROOT_DIR:-/path/to/images}"
+IMAGES_ROOT_DIR="${IMAGES_ROOT_DIR:-/mnt/datadrive/vision-llm-finetune-data/images/prod-prescriptions}"
 TRAIN_DATASET_PATH="${TRAIN_DATASET_PATH:-dataset/train_tasks.json}"
 EVAL_DATASET_PATH="${EVAL_DATASET_PATH:-dataset/dev_tasks.json}"
 OUTPUT_DIR="${OUTPUT_DIR:-outputs/glm-ocr-finetune}"
@@ -72,7 +72,7 @@ echo "  Effective BS:     $((PER_DEVICE_TRAIN_BS * GRAD_ACCUM_STEPS * NUM_GPUS))
 echo "  Learning rate:    ${LEARNING_RATE}"
 echo "============================================="
 
-accelerate launch \
+poetry run accelerate launch \
     --config_file "${ACCEL_CONFIG}" \
     --num_processes "${NUM_GPUS}" \
     -m glm_ocr_finetune.train \

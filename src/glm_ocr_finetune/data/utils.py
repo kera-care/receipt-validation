@@ -79,7 +79,7 @@ def load_tasks(tasks_path: str, images_root_dir: str, prompt: str, validate_imag
             "drug_names": json.dumps({"drug_names": normalized_labels}, indent=2, ensure_ascii=False)
         }
         current_task["image_paths"] = image_paths
-        
+
         output_tasks.append(current_task)
 
     logger.info("Finished loading tasks", total_tasks=len(tasks), output_tasks=len(output_tasks))
@@ -92,6 +92,7 @@ def load_drug_name_extraction_dataset(
     dataset_path: str,
     images_root_dir: str,
     validate_image_paths: bool = False,
+    skip_missing_images: bool = True,
 ) -> HFDataset:
     """Load a drug name extraction dataset as a Hugging Face Dataset.
 
@@ -99,7 +100,7 @@ def load_drug_name_extraction_dataset(
         dataset_path: Path to the JSON task file.
         images_root_dir: Root directory for prescription images.
         validate_image_paths: Whether to verify image files exist on disk.
-
+        skip_missing_images: Whether to skip tasks with missing images.
     Returns:
         A Hugging Face ``Dataset`` with columns derived from the task dicts
         (e.g. ``messages``, ``labels``, ``transaction_id``, …).
@@ -109,6 +110,7 @@ def load_drug_name_extraction_dataset(
         images_root_dir,
         prompt=DRUG_NAME_EXTRACTION_PROMPTS["short"],
         validate_image_paths=validate_image_paths,
+        skip_missing_images=skip_missing_images,
     )
     return HFDataset.from_list(tasks)
 
