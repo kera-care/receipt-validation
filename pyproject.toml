@@ -1,0 +1,27 @@
+[project]
+name = "glm-ocr-finetune"
+version = "0.1.0"
+description = ""
+authors = [
+    {name = "Mitiku Yohannes",email = "mitiku@kera.health"}
+]
+readme = "README.md"
+requires-python = ">=3.12"
+
+packages = [
+    {include = "glm_ocr_finetune", "from" = "src"}
+]
+
+dependencies = [
+    "transformers (>=5.2.0,<6.0.0)",
+    "torchvision (<0.25.0)",
+    "datasets (>=4.6.0,<5.0.0)",
+    "structlog (>=25.5.0,<26.0.0)",
+    "accelerate (>=1.7.0,<2.0.0)",
+    "tensorboard (>=2.19.0)",
+]
+
+
+[build-system]
+requires = ["poetry-core>=2.0.0,<3.0.0"]
+build-backend = "poetry.core.masonry.api"

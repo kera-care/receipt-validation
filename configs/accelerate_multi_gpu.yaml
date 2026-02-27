@@ -1,0 +1,21 @@
+# Accelerate config for multi-GPU A100 training
+# Adjust num_processes to match the number of available GPUs.
+#
+# Usage:
+#   accelerate launch --config_file configs/accelerate_multi_gpu.yaml \
+#       -m glm_ocr_finetune.train --images_root_dir /path/to/images
+
+compute_environment: LOCAL_MACHINE
+distributed_type: MULTI_GPU
+downcast_bf16: "no"
+machine_rank: 0
+main_training_function: main
+mixed_precision: bf16
+num_machines: 1
+num_processes: 4          # ← set to number of A100 GPUs
+rdzv_backend: static
+same_network: true
+tpu_env: []
+tpu_use_cluster: false
+tpu_use_sudo: false
+use_cpu: false
