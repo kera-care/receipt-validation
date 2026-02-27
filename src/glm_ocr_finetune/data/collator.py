@@ -33,7 +33,10 @@ class DrugNameDataCollator:
             add_generation_prompt=False,
             return_dict=True,
             return_tensors="pt",
-            enable_thinking=False
+            enable_thinking=False,
+            padding="max_length",
+            truncation=True,
+            max_length=self.max_length
         )
 
         input_ids = inputs["input_ids"]

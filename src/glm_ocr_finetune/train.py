@@ -41,6 +41,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--eval_dataset_path", type=str, default=DataConfig.eval_dataset_path)
     parser.add_argument("--images_root_dir", type=str, required=True)
     parser.add_argument("--validate_image_paths", action="store_true", default=DataConfig.validate_image_paths)
+    parser.add_argument("--no_validate_image_paths", action="store_false", dest="validate_image_paths")
     parser.add_argument("--max_length", type=int, default=DataConfig.max_length)
     parser.add_argument("--assistant_only", action="store_true", default=DataConfig.assistant_only)
 

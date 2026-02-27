@@ -36,9 +36,9 @@ IMAGE_SIZE="${IMAGE_SIZE:-1024}"
 
 # ── Training hyperparams ─────────────────────────────────────────────
 NUM_EPOCHS="${NUM_EPOCHS:-3}"
-PER_DEVICE_TRAIN_BS="${PER_DEVICE_TRAIN_BS:-2}"
-PER_DEVICE_EVAL_BS="${PER_DEVICE_EVAL_BS:-2}"
-GRAD_ACCUM_STEPS="${GRAD_ACCUM_STEPS:-8}"
+PER_DEVICE_TRAIN_BS="${PER_DEVICE_TRAIN_BS:-1}"
+PER_DEVICE_EVAL_BS="${PER_DEVICE_EVAL_BS:-1}"
+GRAD_ACCUM_STEPS="${GRAD_ACCUM_STEPS:-32}"
 LEARNING_RATE="${LEARNING_RATE:-2e-5}"
 WARMUP_RATIO="${WARMUP_RATIO:-0.05}"
 MAX_LENGTH="${MAX_LENGTH:-4096}"
@@ -94,4 +94,5 @@ poetry run accelerate launch \
     --eval_steps "${EVAL_STEPS}" \
     --save_steps "${SAVE_STEPS}" \
     --gradient_checkpointing \
-    --assistant_only
+    --assistant_only \
+    --no_validate_image_paths 
