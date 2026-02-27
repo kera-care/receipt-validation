@@ -23,7 +23,6 @@ poetry run pip install flash-attn --no-build-isolation
 IMAGES_ROOT_DIR="${IMAGES_ROOT_DIR:-/mnt/datadrive/vision-llm-finetune-data/images/prod-prescriptions}"
 TRAIN_DATASET_PATH="${TRAIN_DATASET_PATH:-dataset/train_tasks.json}"
 EVAL_DATASET_PATH="${EVAL_DATASET_PATH:-dataset/dev_tasks.json}"
-OUTPUT_DIR="${OUTPUT_DIR:-outputs/glm-ocr-finetune}"
 
 HF_CACHE_DIR="/mnt/datadrive/vision-llm-finetune-data/hf-cache"
 mkdir -p "$HF_CACHE_DIR"
@@ -35,7 +34,8 @@ MAX_PIXELS="${MAX_PIXELS:-1048576}"
 IMAGE_SIZE="${IMAGE_SIZE:-1024}"
 
 # ── Training hyperparams ─────────────────────────────────────────────
-NUM_EPOCHS="${NUM_EPOCHS:-3}"
+NUM_EPOCHS="${NUM_EPOCHS:-20}"
+OUTPUT_DIR="${OUTPUT_DIR:-outputs/glm-ocr-finetune}-${NUM_EPOCHS}-epochs"
 PER_DEVICE_TRAIN_BS="${PER_DEVICE_TRAIN_BS:-1}"
 PER_DEVICE_EVAL_BS="${PER_DEVICE_EVAL_BS:-1}"
 GRAD_ACCUM_STEPS="${GRAD_ACCUM_STEPS:-32}"
