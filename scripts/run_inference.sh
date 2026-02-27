@@ -7,9 +7,9 @@ set -euo pipefail
 
 # ── Paths ────────────────────────────────────────────────────────────
 MODEL_PATH="${MODEL_PATH:-outputs/glm-ocr-finetune/final_model}"
-DATASET_PATH="${DATASET_PATH:-dataset/dev_tasks.json}"
+DATASET_PATH="${DATASET_PATH:-../kera-vision-llm-finetune/multi-task-data/prescription_dataset/splits/dev_tasks.json}"
 IMAGES_ROOT_DIR="${IMAGES_ROOT_DIR:-/mnt/datadrive/vision-llm-finetune-data/images/prod-prescriptions}"
-OUTPUT_PATH="${OUTPUT_PATH:-outputs/inference_results.json}"
+OUTPUT_PATH="${OUTPUT_PATH:-outputs/predictions/inference_results.json}"
 
 HF_CACHE_DIR="/mnt/datadrive/vision-llm-finetune-data/hf-cache"
 mkdir -p "$HF_CACHE_DIR"

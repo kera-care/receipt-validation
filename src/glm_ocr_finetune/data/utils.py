@@ -49,7 +49,10 @@ def load_tasks(tasks_path: str, images_root_dir: str, prompt: str, validate_imag
             continue
         labels = current_task["verified_drug_names"]
         normalized_labels = [normalize_drug_name(label) for label in labels]
+        normalized_labels = list(set(normalized_labels))
         normalized_labels.sort()
+
+        image_paths = image_paths[:1] # Only use the first image for now to reduce input length and speed up training. Can be extended to multi-image inputs in the future.
         user_message_contents = [
             {
                 "type": "image",

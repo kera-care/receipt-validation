@@ -16,12 +16,12 @@ Launch with Accelerate:
 import argparse
 import json
 import os
-import tempfile
 import time
 
 import torch
 import torch.distributed as dist
 from torch.utils.data import DataLoader, DistributedSampler, SequentialSampler
+from tqdm import tqdm
 import structlog
 
 from glm_ocr_finetune.modelling.loader import load_base_model
@@ -67,6 +67,10 @@ DTYPE_MAP = {
 
 def get_rank_and_world():
     """Return (local_rank, world_size). Works with or without torchrun/accelerate."""
+    if not dist.is_initialized():
+        # accelerate launch sets these env vars but doesn't call init_process_group
+        if "RANK" in os.environ and "WORLD_SIZE" in os.environ:
+            dist.init_process_group(backend="nccl")
     if dist.is_initialized():
         return dist.get_rank(), dist.get_world_size()
     return 0, 1
@@ -82,7 +86,7 @@ def build_inference_messages(task: dict, prompt: str) -> list[dict]:
     return [{"role": "user", "content": image_contents}]
 
 
-def collate_for_inference(batch: list[dict], processor, prompt: str, max_new_tokens: int):
+def collate_for_inference(batch: list[dict], processor, prompt: str):
     """Prepare a batch for generation. Returns (inputs_on_cpu, metadata_list)."""
     messages_list = []
     metadata = []
@@ -110,7 +114,8 @@ def collate_for_inference(batch: list[dict], processor, prompt: str, max_new_tok
 def run_inference(args):
     rank, world_size = get_rank_and_world()
     is_main = rank == 0
-    device = torch.device(f"cuda:{rank}")
+    local_rank = int(os.environ.get("LOCAL_RANK", 0))
+    device = torch.device(f"cuda:{local_rank}")
 
     if is_main:
         logger.info("Starting distributed inference", world_size=world_size, model_path=args.model_path)
@@ -183,12 +188,17 @@ def run_inference(args):
     total_batches = len(dataloader)
     t_start = time.time()
 
-    for batch_idx, batch in enumerate(dataloader):
-        inputs, metadata = collate_for_inference(batch, processor, prompt, args.max_new_tokens)
+    iterator = enumerate(dataloader)
+    if is_main:
+        iterator = tqdm(iterator, total=total_batches, desc="Inference")
+
+    for batch_idx, batch in iterator:
+        inputs, metadata = collate_for_inference(batch, processor, prompt)
 
         # Move tensors to device
         inputs = {k: v.to(device) if isinstance(v, torch.Tensor) else v for k, v in inputs.items()}
-        input_len = inputs["input_ids"].shape[1]
+        # Per-sample input lengths (handles padding correctly for batch_size > 1)
+        input_lengths = inputs["attention_mask"].sum(dim=1).tolist()
 
         generated_ids = model.generate(
             **inputs,
@@ -197,7 +207,7 @@ def run_inference(args):
 
         # Decode only the newly generated tokens
         for i, meta in enumerate(metadata):
-            output_ids = generated_ids[i][input_len:]
+            output_ids = generated_ids[i][int(input_lengths[i]):]
             generated_text = processor.decode(output_ids, skip_special_tokens=True)
             result = {
                 **meta,
@@ -205,29 +215,26 @@ def run_inference(args):
             }
             all_results.append(result)
 
-        if is_main and (batch_idx + 1) % 10 == 0:
-            elapsed = time.time() - t_start
-            logger.info(
-                "Inference progress",
-                batch=f"{batch_idx + 1}/{total_batches}",
-                samples=len(all_results),
-                elapsed=f"{elapsed:.1f}s",
-            )
+        # Free GPU memory from this batch
+        del generated_ids, inputs, input_lengths
+        torch.cuda.empty_cache()
 
     elapsed = time.time() - t_start
-    logger.info(
-        "Rank finished inference",
-        rank=rank,
-        num_results=len(all_results),
-        elapsed=f"{elapsed:.1f}s",
-    )
+    if is_main:
+        logger.info(
+            "Rank finished inference",
+            rank=rank,
+            num_results=len(all_results),
+            elapsed=f"{elapsed:.1f}s",
+        )
 
     # ------------------------------------------------------------------ #
     # 5. Gather results from all ranks → rank 0 merges & saves
     # ------------------------------------------------------------------ #
     if world_size > 1:
-        # Each rank writes to a temp file, rank 0 reads & merges
-        tmp_dir = tempfile.mkdtemp(prefix="glm_inference_")
+        # All ranks use a shared deterministic directory so rank 0 can read every shard
+        tmp_dir = os.path.join(os.path.dirname(args.output_path) or ".", ".glm_inference_tmp")
+        os.makedirs(tmp_dir, exist_ok=True)
         shard_path = os.path.join(tmp_dir, f"shard_{rank}.json")
         with open(shard_path, "w") as f:
             json.dump(all_results, f, ensure_ascii=False)
