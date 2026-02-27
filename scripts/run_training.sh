@@ -1,6 +1,20 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+
+required_python_version="3.12"
+current_python_version=$(poetry run python -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')")
+if [ "$current_python_version" != "$required_python_version" ]; then
+    echo "Error: Python $required_python_version is required, but current version is $current_python_version."
+    echo "Please set poetry to use Python $required_python_version and try again."
+    exit 1
+fi
+
+poetry lock && poetry install
+
+poetry run pip install flash-attn --no-build-isolation
+
+
 # ──────────────────────────────────────────────────────────────────────
 # GLM-OCR Fine-Tuning Launch Script
 # ──────────────────────────────────────────────────────────────────────
@@ -10,6 +24,10 @@ IMAGES_ROOT_DIR="${IMAGES_ROOT_DIR:-/path/to/images}"
 TRAIN_DATASET_PATH="${TRAIN_DATASET_PATH:-dataset/train_tasks.json}"
 EVAL_DATASET_PATH="${EVAL_DATASET_PATH:-dataset/dev_tasks.json}"
 OUTPUT_DIR="${OUTPUT_DIR:-outputs/glm-ocr-finetune}"
+
+HF_CACHE_DIR="/mnt/datadrive/vision-llm-finetune-data/hf-cache"
+mkdir -p "$HF_CACHE_DIR"
+export HF_HOME="$HF_CACHE_DIR"
 
 # ── Model ────────────────────────────────────────────────────────────
 MODEL_PATH="${MODEL_PATH:-zai-org/GLM-OCR}"
