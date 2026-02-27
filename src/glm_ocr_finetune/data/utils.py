@@ -39,6 +39,9 @@ def load_tasks(tasks_path: str, images_root_dir: str, prompt: str, validate_imag
             if validate_image_paths and not os.path.exists(image_path):
                 logger.error("Image not found", image_path=image_path)
                 raise FileNotFoundError(f"Image not found: {image_path}")
+            if skip_missing_images and not os.path.exists(image_path):
+                logger.warning("Image not found, skipping", image_path=image_path)
+                continue
             image_paths.append(image_path)
 
         if len(image_paths) == 0 and skip_missing_images:
@@ -46,6 +49,7 @@ def load_tasks(tasks_path: str, images_root_dir: str, prompt: str, validate_imag
             continue
         labels = current_task["verified_drug_names"]
         normalized_labels = [normalize_drug_name(label) for label in labels]
+        normalized_labels.sort()
         user_message_contents = [
             {
                 "type": "image",
