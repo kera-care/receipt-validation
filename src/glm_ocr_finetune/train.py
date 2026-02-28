@@ -16,7 +16,7 @@ import torch
 import structlog
 from transformers import TrainingArguments, Trainer
 
-from glm_ocr_finetune.config import ModelConfig, DataConfig, TrainingConfig
+from glm_ocr_finetune.config import ModelConfig, DataConfig, TrainingConfig, LoRAConfig
 from glm_ocr_finetune.modelling.loader import load_base_model
 from glm_ocr_finetune.data.utils import load_drug_name_extraction_dataset
 from glm_ocr_finetune.data.collator import DrugNameDataCollator
@@ -68,7 +68,24 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--seed", type=int, default=TrainingConfig.seed)
     parser.add_argument("--report_to", type=str, default=TrainingConfig.report_to)
 
-    return parser.parse_args()
+    # --- LoRA ---
+    parser.add_argument("--use_lora", action="store_true", default=False,
+                        help="Enable LoRA parameter-efficient fine-tuning")
+    parser.add_argument("--lora_rank", type=int, default=LoRAConfig.rank,
+                        help="LoRA rank (r)")
+    parser.add_argument("--lora_alpha", type=int, default=LoRAConfig.alpha,
+                        help="LoRA alpha (scaling = alpha / rank)")
+    parser.add_argument("--lora_dropout", type=float, default=LoRAConfig.dropout,
+                        help="Dropout probability for LoRA layers")
+
+    args = parser.parse_args()
+
+    # If user enabled LoRA but didn't explicitly set --learning_rate,
+    # override with the higher LoRA default (1e-4 vs 2e-5 for full ft).
+    if args.use_lora and args.learning_rate == TrainingConfig.learning_rate:
+        args.learning_rate = LoRAConfig.learning_rate
+
+    return args
 
 
 def get_torch_dtype(dtype_str: str) -> torch.dtype:
@@ -98,10 +115,39 @@ def main():
         use_fast=False,
     )
 
-    # Full fine-tune: ensure all parameters are trainable
-    model.train()
-    for param in model.parameters():
-        param.requires_grad = True
+    # ------------------------------------------------------------------ #
+    # LoRA or full fine-tune
+    # ------------------------------------------------------------------ #
+    if args.use_lora:
+        from peft import LoraConfig, get_peft_model, TaskType
+
+        lora_defaults = LoRAConfig()
+        lora_config = LoraConfig(
+            r=args.lora_rank,
+            lora_alpha=args.lora_alpha,
+            lora_dropout=args.lora_dropout,
+            bias=lora_defaults.bias,
+            task_type=TaskType.CAUSAL_LM,
+            target_modules=lora_defaults.target_modules,
+        )
+        model = get_peft_model(model, lora_config)
+        model.print_trainable_parameters()
+        logger.info(
+            "LoRA enabled",
+            rank=args.lora_rank,
+            alpha=args.lora_alpha,
+            dropout=args.lora_dropout,
+            num_target_modules=len(lora_defaults.target_modules),
+        )
+
+        # Required for gradient checkpointing when base model weights are frozen
+        if args.gradient_checkpointing:
+            model.enable_input_require_grads()
+    else:
+        # Full fine-tune: ensure all parameters are trainable
+        model.train()
+        for param in model.parameters():
+            param.requires_grad = True
 
     trainable = sum(p.numel() for p in model.parameters() if p.requires_grad)
     total = sum(p.numel() for p in model.parameters())
@@ -123,7 +169,7 @@ def main():
     train_dataset = load_drug_name_extraction_dataset(
         dataset_path=args.train_dataset_path,
         images_root_dir=args.images_root_dir,
-        validate_image_paths=args.validate_image_paths,
+        validate_image_paths=False,  # skip validation for faster loading; set True to verify paths
         skip_missing_images=True,
     )
 
@@ -132,7 +178,7 @@ def main():
         eval_dataset = load_drug_name_extraction_dataset(
             dataset_path=args.eval_dataset_path,
             images_root_dir=args.images_root_dir,
-            validate_image_paths=args.validate_image_paths,
+            validate_image_paths=False,  # skip validation for faster loading; set True to verify paths
             skip_missing_images=True,
         )
 
@@ -211,6 +257,9 @@ def main():
         ddp_find_unused_parameters=False,
         gradient_checkpointing=args.gradient_checkpointing,
         gradient_checkpointing_kwargs={"use_reentrant": False} if args.gradient_checkpointing else None,
+
+        # FSDP is incompatible with PEFT; disable when using LoRA
+        fsdp="" if args.use_lora else None,
     )
 
     # ------------------------------------------------------------------ #
@@ -233,8 +282,18 @@ def main():
     # ------------------------------------------------------------------ #
     # 7. Save final model & metrics
     # ------------------------------------------------------------------ #
-    trainer.save_model(os.path.join(args.output_dir, "final_model"))
-    processor.save_pretrained(os.path.join(args.output_dir, "final_model"))
+    final_dir = os.path.join(args.output_dir, "final_model")
+    trainer.save_model(final_dir)          # saves adapter-only for PEFT, full weights otherwise
+    processor.save_pretrained(final_dir)
+
+    if args.use_lora:
+        # Also save a merged copy for direct loading (no PEFT dependency needed at inference)
+        merged_dir = os.path.join(args.output_dir, "final_model_merged")
+        logger.info("Merging LoRA adapter into base weights", merged_dir=merged_dir)
+        merged_model = model.merge_and_unload()
+        merged_model.save_pretrained(merged_dir)
+        processor.save_pretrained(merged_dir)
+        logger.info("Merged model saved", merged_dir=merged_dir)
 
     metrics = train_result.metrics
     trainer.log_metrics("train", metrics)

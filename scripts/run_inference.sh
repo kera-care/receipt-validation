@@ -7,9 +7,13 @@ set -euo pipefail
 
 # ── Paths ────────────────────────────────────────────────────────────
 MODEL_PATH="${MODEL_PATH:-outputs/glm-ocr-finetune/final_model}"
+LORA_PATH="${LORA_PATH:-}"  # set to adapter dir to load LoRA on top of base model
 DATASET_PATH="${DATASET_PATH:-../kera-vision-llm-finetune/multi-task-data/prescription_dataset/splits/dev_tasks.json}"
 IMAGES_ROOT_DIR="${IMAGES_ROOT_DIR:-/mnt/datadrive/vision-llm-finetune-data/images/prod-prescriptions}"
-OUTPUT_PATH="${OUTPUT_PATH:-outputs/predictions/inference_results.json}"
+
+# Output should be in the same parent directory as the model for easy access, but can be overridden with env var
+OUTPUT_PATH="${OUTPUT_PATH:-$(dirname "${MODEL_PATH}")/inference_outputs}"
+mkdir -p "$OUTPUT_PATH"
 
 HF_CACHE_DIR="/mnt/datadrive/vision-llm-finetune-data/hf-cache"
 mkdir -p "$HF_CACHE_DIR"
@@ -37,12 +41,21 @@ echo "============================================="
 echo "  GPUs:             ${NUM_GPUS}"
 echo "  Accelerate cfg:   ${ACCEL_CONFIG}"
 echo "  Model:            ${MODEL_PATH}"
+if [ -n "${LORA_PATH}" ]; then
+    echo "  LoRA adapter:     ${LORA_PATH}"
+fi
 echo "  Dataset:          ${DATASET_PATH}"
 echo "  Images root:      ${IMAGES_ROOT_DIR}"
 echo "  Output:           ${OUTPUT_PATH}"
 echo "  Batch size/GPU:   ${BATCH_SIZE}"
 echo "  Max new tokens:   ${MAX_NEW_TOKENS}"
 echo "============================================="
+
+# Build optional flags
+LORA_FLAG=""
+if [ -n "${LORA_PATH}" ]; then
+    LORA_FLAG="--lora_path ${LORA_PATH}"
+fi
 
 poetry run accelerate launch \
     --config_file "${ACCEL_CONFIG}" \
@@ -57,4 +70,5 @@ poetry run accelerate launch \
     --torch_dtype "${TORCH_DTYPE}" \
     --max_new_tokens "${MAX_NEW_TOKENS}" \
     --batch_size "${BATCH_SIZE}" \
-    --skip_missing_images
+    --skip_missing_images \
+    ${LORA_FLAG}

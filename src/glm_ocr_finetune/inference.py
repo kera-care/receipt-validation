@@ -36,6 +36,8 @@ def parse_args() -> argparse.Namespace:
 
     # Model
     parser.add_argument("--model_path", type=str, required=True, help="Path to fine-tuned model checkpoint")
+    parser.add_argument("--lora_path", type=str, default=None,
+                        help="Path to LoRA adapter directory (loads on top of --model_path)")
     parser.add_argument("--torch_dtype", type=str, default="bfloat16", choices=["bfloat16", "float16", "float32"])
     parser.add_argument("--max_pixels", type=int, default=1_048_576)
     parser.add_argument("--image_size", type=int, default=1024)
@@ -136,6 +138,16 @@ def run_inference(args):
     )
     model.to(device)
     model.eval()
+
+    # Load LoRA adapter if specified
+    if args.lora_path:
+        from peft import PeftModel
+        if is_main:
+            logger.info("Loading LoRA adapter", lora_path=args.lora_path)
+        model = PeftModel.from_pretrained(model, args.lora_path)
+        model = model.merge_and_unload()  # merge for faster inference
+        if is_main:
+            logger.info("LoRA adapter merged into base weights")
 
     if is_main:
         total_params = sum(p.numel() for p in model.parameters())
@@ -240,6 +252,7 @@ def run_inference(args):
             json.dump(all_results, f, ensure_ascii=False)
 
         dist.barrier()
+        logger.info("Rank finished writing shard", rank=rank, path=shard_path)
 
         if is_main:
             merged: list[dict] = []

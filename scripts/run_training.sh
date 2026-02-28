@@ -33,18 +33,31 @@ MODEL_PATH="${MODEL_PATH:-zai-org/GLM-OCR}"
 MAX_PIXELS="${MAX_PIXELS:-1048576}"
 IMAGE_SIZE="${IMAGE_SIZE:-1024}"
 
+# ── LoRA (set USE_LORA=true to enable) ────────────────────────────────
+USE_LORA="${USE_LORA:-false}"
+LORA_RANK="${LORA_RANK:-64}"
+LORA_ALPHA="${LORA_ALPHA:-128}"
+LORA_DROPOUT="${LORA_DROPOUT:-0.05}"
+
 # ── Training hyperparams ─────────────────────────────────────────────
+# Defaults change depending on USE_LORA (LoRA benefits from a higher LR)
 NUM_EPOCHS="${NUM_EPOCHS:-20}"
-OUTPUT_DIR="${OUTPUT_DIR:-outputs/glm-ocr-finetune}-${NUM_EPOCHS}-epochs"
 PER_DEVICE_TRAIN_BS="${PER_DEVICE_TRAIN_BS:-1}"
 PER_DEVICE_EVAL_BS="${PER_DEVICE_EVAL_BS:-1}"
 GRAD_ACCUM_STEPS="${GRAD_ACCUM_STEPS:-32}"
-LEARNING_RATE="${LEARNING_RATE:-2e-5}"
 WARMUP_RATIO="${WARMUP_RATIO:-0.05}"
 MAX_LENGTH="${MAX_LENGTH:-4096}"
 LOGGING_STEPS="${LOGGING_STEPS:-10}"
 EVAL_STEPS="${EVAL_STEPS:-200}"
 SAVE_STEPS="${SAVE_STEPS:-200}"
+
+if [ "${USE_LORA}" = "true" ]; then
+    LEARNING_RATE="${LEARNING_RATE:-1e-4}"
+    OUTPUT_DIR="${OUTPUT_DIR:-outputs/glm-ocr-finetune-lora}-${NUM_EPOCHS}-epochs"
+else
+    LEARNING_RATE="${LEARNING_RATE:-2e-5}"
+    OUTPUT_DIR="${OUTPUT_DIR:-outputs/glm-ocr-finetune}-${NUM_EPOCHS}-epochs"
+fi
 
 # ── Accelerate ───────────────────────────────────────────────────────
 NUM_GPUS="${NUM_GPUS:-8}"
@@ -70,7 +83,19 @@ echo "  Per-device BS:    ${PER_DEVICE_TRAIN_BS}"
 echo "  Grad accum:       ${GRAD_ACCUM_STEPS}"
 echo "  Effective BS:     $((PER_DEVICE_TRAIN_BS * GRAD_ACCUM_STEPS * NUM_GPUS))"
 echo "  Learning rate:    ${LEARNING_RATE}"
+echo "  LoRA:             ${USE_LORA}"
+if [ "${USE_LORA}" = "true" ]; then
+    echo "  LoRA rank:        ${LORA_RANK}"
+    echo "  LoRA alpha:       ${LORA_ALPHA}"
+    echo "  LoRA dropout:     ${LORA_DROPOUT}"
+fi
 echo "============================================="
+
+# Build optional flags
+LORA_FLAGS=""
+if [ "${USE_LORA}" = "true" ]; then
+    LORA_FLAGS="--use_lora --lora_rank ${LORA_RANK} --lora_alpha ${LORA_ALPHA} --lora_dropout ${LORA_DROPOUT}"
+fi
 
 poetry run accelerate launch \
     --config_file "${ACCEL_CONFIG}" \
@@ -95,4 +120,4 @@ poetry run accelerate launch \
     --save_steps "${SAVE_STEPS}" \
     --gradient_checkpointing \
     --assistant_only \
-    --no_validate_image_paths 
+    ${LORA_FLAGS}

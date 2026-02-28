@@ -19,6 +19,7 @@ dependencies = [
     "structlog (>=25.5.0,<26.0.0)",
     "accelerate (>=1.7.0,<2.0.0)",
     "tensorboard (>=2.19.0)",
+    "peft (>=0.14.0,<1.0.0)",
 ]
 
 

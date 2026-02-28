@@ -15,6 +15,70 @@ class ModelConfig:
 
 
 @dataclass
+class LoRAConfig:
+    """LoRA adapter configuration for parameter-efficient fine-tuning.
+
+    Objectives:
+    1. Handwriting diversity: capture varied handwriting styles and legibility levels
+    2. Background noise: robustly extract text features despite visual clutter
+    3. Orientations / zoom levels: handle different text orientations and scales
+    4. Blurriness: adapt to varying image sharpness and quality
+    5. Drug name vocabulary: learn domain-specific drug names and terminology
+    6. Label misspellings: correct common OCR-induced misspellings in drug names
+    7. Image misspellings: leverage visual context to resolve ambiguous or misspelled text
+    8. OCR artifacts: compensate for typical OCR errors and artifacts in both vision and language components
+    
+
+    Target modules are selected to address all 8 learning objectives:
+
+    Vision encoder attention (24 blocks)  — objectives 1-4, 8
+        1. Handwriting diversity           → spatial attention patterns
+        2. Background noise                → noise-robust feature extraction
+        3. Orientations / zoom levels      → spatial-transform attention
+        4. Blurriness                      → adaptive sharpness features
+        8. OCR artifacts                   → robust visual encoding
+
+    Vision-language merger                 — objectives 7, 8
+        7. Image misspellings              → cross-modal alignment
+        8. OCR artifacts                   → vision→language bridge
+
+    Language model self-attention (16 layers) — objectives 5-8
+        5. Drug name vocabulary            → token-level drug name knowledge
+        6. Label misspellings              → contextual spelling correction
+        7. Image misspellings              → cross-attend to visual context
+        8. OCR artifacts                   → language-side compensation
+
+    Language model MLP (16 layers)         — objective 5
+        5. Drug name vocabulary            → factual / lexical knowledge
+    """
+    rank: int = 64
+    alpha: int = 128                        # alpha = 2 × rank is a common default
+    dropout: float = 0.05
+    bias: str = "none"
+    task_type: str = "CAUSAL_LM"
+    learning_rate: float = 1e-4             # higher than full fine-tune (2e-5)
+
+    target_modules: list[str] = field(default_factory=lambda: [
+        # ── Vision encoder attention (24 blocks) ──────────────────────
+        "attn.qkv",                         # fused Q/K/V (1024→3072)
+        "attn.proj",                        # attention output (1024→1024)
+        # ── Vision-language merger ────────────────────────────────────
+        "merger.proj",                      # cross-modal projection (1536→1536)
+        # ── Language model self-attention (16 layers) ─────────────────
+        "q_proj",                           # query  (1536→2048)
+        "k_proj",                           # key    (1536→1024)
+        "v_proj",                           # value  (1536→1024)
+        "o_proj",                           # output (2048→1536)
+        # ── MLP gate/up — vision blocks + merger + LM ─────────────────
+        "gate_proj",                        # vision + merger gate (1024/1536→4096/4608)
+        "up_proj",                          # vision + merger up   (also catches LM gate_up_proj)
+        "gate_up_proj",                     # LM fused gate+up     (1536→9216)
+        # ── MLP down — all three sub-networks ────────────────────────
+        "down_proj",                        # vision + merger + LM down
+    ])
+
+
+@dataclass
 class DataConfig:
     """Dataset paths and loading options."""
     train_dataset_path: str = "dataset/train_tasks.json"
