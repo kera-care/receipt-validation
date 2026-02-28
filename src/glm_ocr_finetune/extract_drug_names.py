@@ -62,9 +62,15 @@ def extract_drug_names(task_files: list[str]) -> dict:
         for task in tasks:
             for name in task.get("verified_drug_names", []):
                 normalized = normalize_drug_name(name)
-                if normalized:
+                if normalized and len(normalized) > 2:
                     file_names.add(normalized)
                     all_names.add(normalized)
+                elif normalized and len(normalized) <= 2:
+                    logger.warning(
+                        "Skipping short drug name after normalization",
+                        original_name=name,
+                        normalized_name=normalized,
+                    )
 
         total_tasks += len(tasks)
         per_file_stats.append({
