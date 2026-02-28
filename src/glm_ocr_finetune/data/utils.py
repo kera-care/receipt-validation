@@ -31,6 +31,7 @@ def load_tasks(tasks_path: str, images_root_dir: str, prompt: str, validate_imag
     with open(tasks_path, "r") as f:
         tasks = json.load(f)
     output_tasks = []
+    num_skipped_tasks = 0
     for task in tasks:
         current_task = task.copy()
         image_paths = []
@@ -40,12 +41,11 @@ def load_tasks(tasks_path: str, images_root_dir: str, prompt: str, validate_imag
                 logger.error("Image not found", image_path=image_path)
                 raise FileNotFoundError(f"Image not found: {image_path}")
             if skip_missing_images and not os.path.exists(image_path):
-                logger.warning("Image not found, skipping", image_path=image_path)
                 continue
             image_paths.append(image_path)
 
         if len(image_paths) == 0 and skip_missing_images:
-            logger.warning("No valid images found for task, skipping", transaction_id=current_task.get("transaction_id", "N/A"))
+            num_skipped_tasks += 1
             continue
         labels = current_task["verified_drug_names"]
         normalized_labels = [normalize_drug_name(label) for label in labels]
@@ -89,6 +89,8 @@ def load_tasks(tasks_path: str, images_root_dir: str, prompt: str, validate_imag
         output_tasks.append(current_task)
 
     logger.info("Finished loading tasks", total_tasks=len(tasks), output_tasks=len(output_tasks))
+    if num_skipped_tasks > 0:
+        logger.warning("Some tasks were skipped due to missing images", num_skipped_tasks=num_skipped_tasks)
     
     return output_tasks
 

@@ -67,6 +67,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--dataloader_num_workers", type=int, default=TrainingConfig.dataloader_num_workers)
     parser.add_argument("--seed", type=int, default=TrainingConfig.seed)
     parser.add_argument("--report_to", type=str, default=TrainingConfig.report_to)
+    parser.add_argument("--resume_from_checkpoint", type=bool, action="store_true", default=TrainingConfig.resume_from_checkpoint)
 
     # --- LoRA ---
     parser.add_argument("--use_lora", action="store_true", default=False,
@@ -277,7 +278,16 @@ def main():
     # 6. Train
     # ------------------------------------------------------------------ #
     logger.info("Launching training")
-    train_result = trainer.train()
+    #. Check if there is a checkpoint to resume from
+    if args.resume_from_checkpoint:
+        last_checkpoint = trainer.get_last_checkpoint()
+        if last_checkpoint:
+            logger.info(f"Resuming from checkpoint: {last_checkpoint}")
+            resume_from_checkpoint = last_checkpoint
+        else:
+            logger.info("No checkpoint found, starting from scratch")
+            resume_from_checkpoint = None
+    train_result = trainer.train(resume_from_checkpoint=resume_from_checkpoint)
 
     # ------------------------------------------------------------------ #
     # 7. Save final model & metrics

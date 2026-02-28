@@ -120,4 +120,5 @@ poetry run accelerate launch \
     --save_steps "${SAVE_STEPS}" \
     --gradient_checkpointing \
     --assistant_only \
+    --resume_from_checkpoint "${RESUME_FROM_CHECKPOINT:-true}" \
     ${LORA_FLAGS}

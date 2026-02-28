@@ -51,7 +51,7 @@ Each task file is a JSON array of objects:
 [
   {
     "transaction_id": "abc123",
-    "image_paths": ["relative/path/to/image.jpg"],
+    "prescription_image_urls": ["relative/path/to/image.jpg"],
     "verified_drug_names": ["Amoxicilline Arrow - 1g, b/30", "Doliprane - 500mg, b/16"]
   }
 ]

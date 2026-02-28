@@ -27,7 +27,7 @@ class LoRAConfig:
     6. Label misspellings: correct common OCR-induced misspellings in drug names
     7. Image misspellings: leverage visual context to resolve ambiguous or misspelled text
     8. OCR artifacts: compensate for typical OCR errors and artifacts in both vision and language components
-    
+
 
     Target modules are selected to address all 8 learning objectives:
 
@@ -145,3 +145,6 @@ class TrainingConfig:
     remove_unused_columns: bool = False  # critical for custom collator
     ddp_find_unused_parameters: bool = False
     dataloader_persistent_workers: bool = True
+
+
+    resume_from_checkpoint: bool | None = None  # path to checkpoint or True to auto-resume from latest
