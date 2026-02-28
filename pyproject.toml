@@ -20,6 +20,7 @@ dependencies = [
     "accelerate (>=1.7.0,<2.0.0)",
     "tensorboard (>=2.19.0)",
     "peft (>=0.14.0,<1.0.0)",
+    "json-repair (>=0.58.1,<0.59.0)",
 ]
 
 

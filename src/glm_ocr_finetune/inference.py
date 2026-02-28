@@ -17,15 +17,16 @@ import argparse
 import json
 import os
 import time
+import structlog
 
 import torch
 import torch.distributed as dist
 from torch.utils.data import DataLoader, DistributedSampler, SequentialSampler
 from tqdm import tqdm
-import structlog
+from json_repair import repair_json
 
 from glm_ocr_finetune.modelling.loader import load_base_model
-from glm_ocr_finetune.data.utils import load_drug_name_extraction_dataset
+from glm_ocr_finetune.data.utils import load_drug_name_extraction_dataset, normalize_drug_name
 from glm_ocr_finetune.data.prompts import DRUG_NAME_EXTRACTION_PROMPTS
 
 logger = structlog.get_logger(__name__)
@@ -95,9 +96,12 @@ def collate_for_inference(batch: list[dict], processor, prompt: str):
     for task in batch:
         messages = build_inference_messages(task, prompt)
         messages_list.append(messages)
+        verified_drug_names = task.get("verified_drug_names", [])
+        verified_drug_names = set([normalize_drug_name(name) for name in verified_drug_names])
+        verified_drug_names = sorted(verified_drug_names)
         metadata.append({
             "transaction_id": task["transaction_id"],
-            "verified_drug_names": task["verified_drug_names"],
+            "verified_drug_names": verified_drug_names,
             "prescription_image_urls": task["prescription_image_urls"],
         })
 
@@ -221,9 +225,15 @@ def run_inference(args):
         for i, meta in enumerate(metadata):
             output_ids = generated_ids[i][int(input_lengths[i]):]
             generated_text = processor.decode(output_ids, skip_special_tokens=True)
+
+            try:
+                parsed = json.loads(repair_json(generated_text))
+            except json.JSONDecodeError:
+                parsed = {"drug_names": []}  # fallback to empty list if parsing fails
+
             result = {
                 **meta,
-                "generated_text": generated_text,
+                "predictions": parsed
             }
             all_results.append(result)
 
@@ -278,6 +288,9 @@ def run_inference(args):
 
 
 def _save_results(results: list[dict], output_path: str):
+    # If the user passed a directory (or one already exists at this path), write into it
+    if os.path.isdir(output_path):
+        output_path = os.path.join(output_path, "inference_results.json")
     os.makedirs(os.path.dirname(output_path) or ".", exist_ok=True)
     with open(output_path, "w") as f:
         json.dump(results, f, indent=2, ensure_ascii=False)

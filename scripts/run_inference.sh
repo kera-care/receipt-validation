@@ -12,8 +12,9 @@ DATASET_PATH="${DATASET_PATH:-../kera-vision-llm-finetune/multi-task-data/prescr
 IMAGES_ROOT_DIR="${IMAGES_ROOT_DIR:-/mnt/datadrive/vision-llm-finetune-data/images/prod-prescriptions}"
 
 # Output should be in the same parent directory as the model for easy access, but can be overridden with env var
-OUTPUT_PATH="${OUTPUT_PATH:-$(dirname "${MODEL_PATH}")/inference_outputs}"
-mkdir -p "$OUTPUT_PATH"
+OUTPUT_DIR="$(dirname "${MODEL_PATH}")/inference_outputs"
+mkdir -p "$OUTPUT_DIR"
+OUTPUT_PATH="${OUTPUT_PATH:-${OUTPUT_DIR}/inference_results.json}"
 
 HF_CACHE_DIR="/mnt/datadrive/vision-llm-finetune-data/hf-cache"
 mkdir -p "$HF_CACHE_DIR"
