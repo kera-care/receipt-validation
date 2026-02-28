@@ -15,6 +15,8 @@ import os
 import torch
 import structlog
 from transformers import TrainingArguments, Trainer
+from transformers.trainer_utils import get_last_checkpoint
+from transformers.trainer_utils import get_last_checkpoint
 
 from glm_ocr_finetune.config import ModelConfig, DataConfig, TrainingConfig, LoRAConfig
 from glm_ocr_finetune.modelling.loader import load_base_model
@@ -67,7 +69,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--dataloader_num_workers", type=int, default=TrainingConfig.dataloader_num_workers)
     parser.add_argument("--seed", type=int, default=TrainingConfig.seed)
     parser.add_argument("--report_to", type=str, default=TrainingConfig.report_to)
-    parser.add_argument("--resume_from_checkpoint", type=bool, action="store_true", default=TrainingConfig.resume_from_checkpoint)
+    parser.add_argument("--resume_from_checkpoint", action="store_true", default=TrainingConfig.resume_from_checkpoint)
 
     # --- LoRA ---
     parser.add_argument("--use_lora", action="store_true", default=False,
@@ -278,16 +280,17 @@ def main():
     # 6. Train
     # ------------------------------------------------------------------ #
     logger.info("Launching training")
-    #. Check if there is a checkpoint to resume from
+    # Resolve checkpoint path
+    resume_ckpt = None
     if args.resume_from_checkpoint:
-        last_checkpoint = trainer.get_last_checkpoint()
-        if last_checkpoint:
-            logger.info(f"Resuming from checkpoint: {last_checkpoint}")
-            resume_from_checkpoint = last_checkpoint
+        last_ckpt = get_last_checkpoint(args.output_dir)
+        if last_ckpt is not None:
+            resume_ckpt = last_ckpt
+            logger.info("Resuming from checkpoint", checkpoint=last_ckpt)
         else:
-            logger.info("No checkpoint found, starting from scratch")
-            resume_from_checkpoint = None
-    train_result = trainer.train(resume_from_checkpoint=resume_from_checkpoint)
+            logger.warning("--resume_from_checkpoint set but no checkpoint found", output_dir=args.output_dir)
+
+    train_result = trainer.train(resume_from_checkpoint=resume_ckpt)
 
     # ------------------------------------------------------------------ #
     # 7. Save final model & metrics

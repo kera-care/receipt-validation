@@ -21,8 +21,8 @@ poetry run pip install flash-attn --no-build-isolation
 
 # ── Paths (edit these) ───────────────────────────────────────────────
 IMAGES_ROOT_DIR="${IMAGES_ROOT_DIR:-/mnt/datadrive/vision-llm-finetune-data/images/prod-prescriptions}"
-TRAIN_DATASET_PATH="${TRAIN_DATASET_PATH:-dataset/train_tasks.json}"
-EVAL_DATASET_PATH="${EVAL_DATASET_PATH:-dataset/dev_tasks.json}"
+TRAIN_DATASET_PATH="${TRAIN_DATASET_PATH:-../kera-vision-llm-finetune/multi-task-data/prescription_dataset/splits/train_tasks.json}"
+EVAL_DATASET_PATH="${EVAL_DATASET_PATH:-../kera-vision-llm-finetune/multi-task-data/prescription_dataset/splits/dev_tasks.json}"
 
 HF_CACHE_DIR="/mnt/datadrive/vision-llm-finetune-data/hf-cache"
 mkdir -p "$HF_CACHE_DIR"
@@ -120,5 +120,4 @@ poetry run accelerate launch \
     --save_steps "${SAVE_STEPS}" \
     --gradient_checkpointing \
     --assistant_only \
-    --resume_from_checkpoint "${RESUME_FROM_CHECKPOINT:-true}" \
     ${LORA_FLAGS}
