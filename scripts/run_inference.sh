@@ -6,15 +6,14 @@ set -euo pipefail
 # ──────────────────────────────────────────────────────────────────────
 
 # ── Paths ────────────────────────────────────────────────────────────
-MODEL_PATH="${MODEL_PATH:-outputs/glm-ocr-finetune/final_model}"
+MODEL_PATH="${MODEL_PATH:-outputs/glm-ocr-finetune-20-epochs/final_model}"
 LORA_PATH="${LORA_PATH:-}"  # set to adapter dir to load LoRA on top of base model
 DATASET_PATH="${DATASET_PATH:-../kera-vision-llm-finetune/multi-task-data/prescription_dataset/splits/dev_tasks.json}"
 IMAGES_ROOT_DIR="${IMAGES_ROOT_DIR:-/mnt/datadrive/vision-llm-finetune-data/images/prod-prescriptions}"
 
 # Output should be in the same parent directory as the model for easy access, but can be overridden with env var
-OUTPUT_DIR="$(dirname "${MODEL_PATH}")/inference_outputs"
-mkdir -p "$OUTPUT_DIR"
-OUTPUT_PATH="${OUTPUT_PATH:-${OUTPUT_DIR}/inference_results.json}"
+OUTPUT_PATH="${OUTPUT_PATH:-$(dirname "${MODEL_PATH}")/inference_outputs}"
+mkdir -p "$OUTPUT_PATH"
 
 HF_CACHE_DIR="/mnt/datadrive/vision-llm-finetune-data/hf-cache"
 mkdir -p "$HF_CACHE_DIR"
