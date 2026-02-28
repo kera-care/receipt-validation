@@ -24,73 +24,20 @@ import os
 from dataclasses import asdict, dataclass, field
 
 import structlog
+from thefuzz import fuzz
 
 from glm_ocr_finetune.data.utils import normalize_drug_name
 
 logger = structlog.get_logger(__name__)
 
-# ---------------------------------------------------------------------------
-# Jaro-Winkler implementation (pure-Python, no external dependency)
-# ---------------------------------------------------------------------------
 
-def _jaro_similarity(s1: str, s2: str) -> float:
-    """Compute Jaro similarity between two strings."""
-    if s1 == s2:
-        return 1.0
-    len_s1, len_s2 = len(s1), len(s2)
-    if len_s1 == 0 or len_s2 == 0:
-        return 0.0
+def jaro_winkler_similarity(s1: str, s2: str) -> float:
+    """Return a similarity score in [0, 1] using thefuzz's token ratio.
 
-    match_distance = max(len_s1, len_s2) // 2 - 1
-    if match_distance < 0:
-        match_distance = 0
-
-    s1_matches = [False] * len_s1
-    s2_matches = [False] * len_s2
-
-    matches = 0
-    transpositions = 0
-
-    for i in range(len_s1):
-        start = max(0, i - match_distance)
-        end = min(i + match_distance + 1, len_s2)
-        for j in range(start, end):
-            if s2_matches[j] or s1[i] != s2[j]:
-                continue
-            s1_matches[i] = True
-            s2_matches[j] = True
-            matches += 1
-            break
-
-    if matches == 0:
-        return 0.0
-
-    k = 0
-    for i in range(len_s1):
-        if not s1_matches[i]:
-            continue
-        while not s2_matches[k]:
-            k += 1
-        if s1[i] != s2[k]:
-            transpositions += 1
-        k += 1
-
-    return (
-        matches / len_s1 + matches / len_s2 + (matches - transpositions / 2) / matches
-    ) / 3
-
-
-def jaro_winkler_similarity(s1: str, s2: str, p: float = 0.1) -> float:
-    """Compute Jaro-Winkler similarity (higher = more similar, 1.0 = identical)."""
-    jaro = _jaro_similarity(s1, s2)
-    # common prefix length (up to 4 characters)
-    prefix_len = 0
-    for i in range(min(len(s1), len(s2), 4)):
-        if s1[i] == s2[i]:
-            prefix_len += 1
-        else:
-            break
-    return jaro + prefix_len * p * (1 - jaro)
+    Uses Jaro-Winkler-like partial/token matching via thefuzz.
+    The score is divided by 100 to normalise from thefuzz's 0-100 range.
+    """
+    return fuzz.ratio(s1, s2) / 100.0
 
 
 # ---------------------------------------------------------------------------
@@ -159,59 +106,77 @@ def evaluate_exact(pred_names: list[str], label_names: list[str]) -> tuple[int, 
     return tp, fp, fn
 
 
-def evaluate_fuzzy(
+def fuzzy_correct_predictions(
     pred_names: list[str],
-    label_names: list[str],
+    all_drug_names: list[str],
     threshold: float = 0.7,
-) -> tuple[int, int, int, list[dict]]:
-    """Fuzzy matching via Jaro-Winkler.
+) -> tuple[list[str], list[dict]]:
+    """Correct each prediction by fuzzy-matching against the full drug name vocabulary.
 
-    For each predicted name, find the closest unmatched label.
-    Accept the match if similarity >= threshold.
+    For each predicted name, find the closest match in *all_drug_names*.
+    If similarity >= threshold, replace the prediction with the matched name.
+    Otherwise keep the original prediction unchanged.
 
-    Returns (tp, fp, fn, match_details).
+    Returns (corrected_predictions, match_details).
     """
-    remaining_labels = list(label_names)  # mutable copy
-    tp = 0
-    fp = 0
+    corrected: list[str] = []
     match_details: list[dict] = []
 
     for pred in pred_names:
         best_score = 0.0
-        best_idx = -1
-        best_label = None
-        for idx, label in enumerate(remaining_labels):
-            score = jaro_winkler_similarity(pred, label)
+        best_name = None
+        for name in all_drug_names:
+            score = jaro_winkler_similarity(pred, name)
             if score > best_score:
                 best_score = score
-                best_idx = idx
-                best_label = label
+                best_name = name
 
-        if best_score >= threshold and best_idx >= 0:
-            tp += 1
-            remaining_labels.pop(best_idx)
+        if best_score >= threshold and best_name is not None:
+            corrected.append(best_name)
             match_details.append({
                 "prediction": pred,
-                "matched_label": best_label,
+                "corrected_to": best_name,
                 "similarity": round(best_score, 4),
                 "accepted": True,
             })
         else:
-            fp += 1
+            corrected.append(pred)  # keep original
             match_details.append({
                 "prediction": pred,
-                "matched_label": best_label,
-                "similarity": round(best_score, 4) if best_label else 0.0,
+                "corrected_to": None,
+                "closest_match": best_name,
+                "similarity": round(best_score, 4) if best_name else 0.0,
                 "accepted": False,
             })
 
-    fn = len(remaining_labels)  # unmatched labels
-    return tp, fp, fn, match_details
+    return corrected, match_details
+
+
+def evaluate_fuzzy(
+    pred_names: list[str],
+    label_names: list[str],
+    all_drug_names: list[str],
+    threshold: float = 0.7,
+) -> tuple[int, int, int, list[dict], list[str]]:
+    """Fuzzy evaluation: correct predictions against the full drug vocabulary, then exact-match vs labels.
+
+    1. Each prediction is fuzzy-matched to its closest drug name in *all_drug_names*.
+    2. If similarity >= threshold the prediction is replaced with the matched name.
+    3. The corrected predictions are then compared to labels via exact set matching.
+
+    Returns (tp, fp, fn, match_details, corrected_predictions).
+    """
+    corrected, match_details = fuzzy_correct_predictions(pred_names, all_drug_names, threshold)
+    # Deduplicate corrected predictions (two different raw predictions may map to the same drug)
+    corrected_unique = sorted(set(corrected))
+    tp, fp, fn = evaluate_exact(corrected_unique, label_names)
+    return tp, fp, fn, match_details, corrected_unique
 
 
 def evaluate_sample(
     predictions: list[str],
     labels: list[str],
+    all_drug_names: list[str],
     threshold: float,
 ) -> SampleResult:
     """Run both exact and fuzzy evaluation for a single sample."""
@@ -227,9 +192,9 @@ def evaluate_sample(
         result.exact_tp, result.exact_fp, result.exact_fn
     )
 
-    # Fuzzy
-    result.fuzzy_tp, result.fuzzy_fp, result.fuzzy_fn, result.fuzzy_matches = evaluate_fuzzy(
-        predictions, labels, threshold
+    # Fuzzy — correct predictions against full drug vocabulary, then exact-match vs labels
+    result.fuzzy_tp, result.fuzzy_fp, result.fuzzy_fn, result.fuzzy_matches, _ = evaluate_fuzzy(
+        predictions, labels, all_drug_names, threshold
     )
     result.fuzzy_precision, result.fuzzy_recall, result.fuzzy_f1 = _safe_prf(
         result.fuzzy_tp, result.fuzzy_fp, result.fuzzy_fn
@@ -257,10 +222,16 @@ def parse_args() -> argparse.Namespace:
         help="Path to save the evaluation report",
     )
     parser.add_argument(
-        "--jaro_winkler_threshold",
+        "--drug_names_path",
+        type=str,
+        required=True,
+        help="Path to the drug names JSON produced by extract_drug_names.py",
+    )
+    parser.add_argument(
+        "--fuzzy_threshold",
         type=float,
         default=0.7,
-        help="Minimum Jaro-Winkler similarity to accept a fuzzy match (default: 0.7)",
+        help="Minimum fuzzy similarity to accept a vocabulary match (default: 0.7)",
     )
     return parser.parse_args()
 
@@ -270,8 +241,15 @@ def main():
     logger.info(
         "Starting evaluation",
         inference_path=args.inference_path,
-        threshold=args.jaro_winkler_threshold,
+        drug_names_path=args.drug_names_path,
+        threshold=args.fuzzy_threshold,
     )
+
+    # Load full drug-name vocabulary
+    with open(args.drug_names_path, "r") as f:
+        drug_names_data = json.load(f)
+    all_drug_names: list[str] = drug_names_data["drug_names"]
+    logger.info("Drug name vocabulary loaded", num_names=len(all_drug_names))
 
     with open(args.inference_path, "r") as f:
         inference_results = json.load(f)
@@ -289,7 +267,7 @@ def main():
         raw_preds = preds_obj.get("drug_names", []) if isinstance(preds_obj, dict) else []
         predictions = sorted(set(normalize_drug_name(n) for n in raw_preds if normalize_drug_name(n)))
 
-        result = evaluate_sample(predictions, labels, args.jaro_winkler_threshold)
+        result = evaluate_sample(predictions, labels, all_drug_names, args.fuzzy_threshold)
         result.transaction_id = item.get("transaction_id", "")
 
         # Accumulate
@@ -321,8 +299,8 @@ def main():
         fn=agg.exact_fn,
     )
     logger.info(
-        "=== Fuzzy Match (Jaro-Winkler) ===",
-        threshold=args.jaro_winkler_threshold,
+        "=== Fuzzy Match (vocabulary-corrected) ===",
+        threshold=args.fuzzy_threshold,
         precision=f"{agg.fuzzy_precision:.4f}",
         recall=f"{agg.fuzzy_recall:.4f}",
         f1=f"{agg.fuzzy_f1:.4f}",
@@ -335,7 +313,9 @@ def main():
     report = {
         "config": {
             "inference_path": args.inference_path,
-            "jaro_winkler_threshold": args.jaro_winkler_threshold,
+            "drug_names_path": args.drug_names_path,
+            "fuzzy_threshold": args.fuzzy_threshold,
+            "num_drug_names_in_vocabulary": len(all_drug_names),
             "num_samples": agg.num_samples,
         },
         "aggregate": {

@@ -5,7 +5,7 @@ set -euo pipefail
 # Extract all unique normalized drug names from task files
 # ──────────────────────────────────────────────────────────────────────
 
-TASK_FILES="${TASK_FILES:-dataset/train_tasks.json dataset/dev_tasks.json}"
+TASK_FILES="${TASK_FILES:-../kera-vision-llm-finetune/multi-task-data/prescription_dataset/splits/train_tasks.json ../kera-vision-llm-finetune/multi-task-data/prescription_dataset/splits/dev_tasks.json ../kera-vision-llm-finetune/multi-task-data/prescription_dataset/splits/test_tasks.json}"
 OUTPUT_PATH="${OUTPUT_PATH:-outputs/all_drug_names.json}"
 
 echo "============================================="
