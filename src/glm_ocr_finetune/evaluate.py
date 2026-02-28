@@ -1,29 +1,36 @@
 """
 Evaluate drug name extraction predictions against ground-truth labels.
 
+Uses ``resources/drug_roots.json`` which maps drug names to *roots* and
+*variants*.  Both labels and predictions are fuzzy-matched against the full
+list of variants.  The matched variant is mapped back to its **entry key**
+(the top-level key in drug_roots.json) and evaluation is done by comparing
+**key sets** — one key per drug entry, regardless of how many roots it has.
+
 Two evaluation modes:
-    1. **Exact match** — a predicted name must match a label character-for-character
-       (after normalization). Even a single extra/missing character counts as an error.
-    2. **Fuzzy match** — each predicted name is fuzzy-matched against the full drug
-       vocabulary and corrected if similarity >= threshold. Evaluated at multiple
-       thresholds so you can compare the effect on P/R/F1.
+    1. **Exact match (full string)** — after normalization, predicted name must
+       match a label character-for-character.
+    2. **Root match** — both labels and predictions are resolved to their drug
+       entry keys via best-variant matching; keys are compared as sets.
+       The same similarity threshold is applied to both sides so that
+       identical strings always receive the same treatment.
 
 Outputs:
-    - ``evaluation_results.json`` — aggregate + per-sample metrics for exact match
-      and fuzzy match at every requested threshold.
-    - ``error_analysis/threshold_<T>.json`` (one per threshold) — per-sample breakdown
-      showing raw predictions, corrected predictions, TPs, FPs, FNs and match details
-      so you can inspect what errors the model is making.
+    - ``evaluation_results.json`` — aggregate + per-sample metrics for all modes.
+    - ``error_analysis/threshold_<T>.json`` (one per threshold) — per-sample
+      breakdown showing raw predictions, resolved roots, TPs, FPs, FNs and
+      match details for inspecting model errors.
 
 Usage:
     python -m glm_ocr_finetune.evaluate \
         --inference_path outputs/inference_results.json \
-        --drug_names_path outputs/all_drug_names.json \
+        --drug_roots_path resources/drug_roots.json \
         --output_path outputs/evaluation_results.json \
         [--fuzzy_thresholds 0.5 0.6 0.7 0.8 0.9]
 """
 
 import argparse
+import csv
 import json
 import os
 
@@ -41,11 +48,147 @@ logger = structlog.get_logger(__name__)
 # ---------------------------------------------------------------------------
 
 def fuzzy_similarity(s1: str, s2: str) -> float:
-    """Return a similarity score in [0, 1] using thefuzz's ratio.
-
-    The score is divided by 100 to normalise from thefuzz's 0-100 range.
-    """
+    """Return a similarity score in [0, 1] using thefuzz's ratio."""
     return fuzz.ratio(s1, s2) / 100.0
+
+
+def extract_drug_name_part(name: str) -> str:
+    """Extract the drug name portion, stripping dosage/packaging info.
+
+    Drug names from the dataset often look like::
+
+        amoxicilline arrow - 1g, b/30
+        maxidrol - 100mg/0,35mui/0,6mui, fl/3ml
+
+    Everything after the first `` - `` is dosage/form/packaging and should be
+    stripped before matching against the variant index.
+    """
+    # Split on ' - ' (space-dash-space) which separates name from dosage
+    parts = name.split(" - ", 1)
+    return parts[0].strip()
+
+
+# ---------------------------------------------------------------------------
+# Drug roots index
+# ---------------------------------------------------------------------------
+
+def build_variant_index(drug_roots: dict) -> tuple[list[str], dict[str, str]]:
+    """Build a flat index from *drug_roots.json*.
+
+    Returns:
+        all_variants: sorted list of every unique variant (used for fuzzy search).
+        variant_to_key: mapping from each normalized variant to the top-level
+            entry key it belongs to.  Because variants are unique across entries
+            each variant maps to exactly one key.
+    """
+    variant_to_key: dict[str, str] = {}
+    for key, entry in drug_roots.items():
+        norm_key = normalize_drug_name(key)
+        for variant in entry["variants"]:
+            norm = normalize_drug_name(variant)
+            if norm:
+                variant_to_key.setdefault(norm, norm_key)
+        # Also index roots themselves as variants so labels/predictions that
+        # already match a root are handled.
+        for root in entry["roots"]:
+            norm = normalize_drug_name(root)
+            if norm:
+                variant_to_key.setdefault(norm, norm_key)
+        # And the key itself
+        if norm_key:
+            variant_to_key.setdefault(norm_key, norm_key)
+    all_variants = sorted(variant_to_key.keys())
+    return all_variants, variant_to_key
+
+
+def resolve_to_keys(
+    names: list[str],
+    all_variants: list[str],
+    variant_to_key: dict[str, str],
+    threshold: float = 0.0,
+) -> tuple[set[str], list[dict]]:
+    """Resolve a list of drug names to their entry key via best-variant matching.
+
+    For each name, find the variant with the highest fuzzy similarity.
+    If similarity >= *threshold*, use that variant's entry key; otherwise keep
+    the original name as an "unresolved" key.
+
+    Returns (key_set, match_details).
+    """
+    keys: set[str] = set()
+    details: list[dict] = []
+
+    for name in names:
+        # Strip dosage/packaging info for matching purposes
+        match_name = extract_drug_name_part(name)
+
+        # Check exact match first (fast path)
+        if match_name in variant_to_key:
+            matched_key = variant_to_key[match_name]
+            keys.add(matched_key)
+            details.append({
+                "name": name,
+                "match_name": match_name,
+                "best_variant": match_name,
+                "similarity": 1.0,
+                "resolved_key": matched_key,
+                "exact_variant_match": True,
+            })
+            continue
+
+        # Fuzzy search through all variants
+        best_score = 0.0
+        best_variant = None
+        for variant in all_variants:
+            score = fuzzy_similarity(match_name, variant)
+            if score > best_score:
+                best_score = score
+                best_variant = variant
+
+        if best_score >= threshold and best_variant is not None:
+            matched_key = variant_to_key[best_variant]
+            keys.add(matched_key)
+            details.append({
+                "name": name,
+                "match_name": match_name,
+                "best_variant": best_variant,
+                "similarity": round(best_score, 4),
+                "resolved_key": matched_key,
+                "exact_variant_match": False,
+            })
+        else:
+            # Unresolved — use the original name as the key
+            keys.add(name)
+            details.append({
+                "name": name,
+                "match_name": match_name,
+                "best_variant": best_variant,
+                "similarity": round(best_score, 4) if best_variant else 0.0,
+                "resolved_key": name,
+                "exact_variant_match": False,
+                "unresolved": True,
+            })
+
+    return keys, details
+
+
+# ---------------------------------------------------------------------------
+# Exclusion index
+# ---------------------------------------------------------------------------
+
+def build_exclusion_set(csv_path: str) -> set[str]:
+    """Load *drugs_exclusion.csv* and return a set of normalized drug names
+    that are marked as exclusions (``is_exclusion == 'True'``).
+    """
+    exclusion_keys: set[str] = set()
+    with open(csv_path, "r") as f:
+        reader = csv.DictReader(f)
+        for row in reader:
+            if row["is_exclusion"].strip() == "True":
+                norm = normalize_drug_name(row["drug_name"])
+                if norm:
+                    exclusion_keys.add(norm)
+    return exclusion_keys
 
 
 # ---------------------------------------------------------------------------
@@ -59,76 +202,12 @@ def _safe_prf(tp: int, fp: int, fn: int) -> tuple[float, float, float]:
     return precision, recall, f1
 
 
-def evaluate_exact(pred_names: list[str], label_names: list[str]) -> tuple[int, int, int]:
-    """Exact set-matching: TP = intersection, FP = predicted - labels, FN = labels - predicted."""
-    pred_set = set(pred_names)
-    label_set = set(label_names)
+def evaluate_sets(pred_set: set[str], label_set: set[str]) -> tuple[int, int, int]:
+    """Set-matching: TP = intersection, FP = predicted − labels, FN = labels − predicted."""
     tp = len(pred_set & label_set)
     fp = len(pred_set - label_set)
     fn = len(label_set - pred_set)
     return tp, fp, fn
-
-
-# ---------------------------------------------------------------------------
-# Fuzzy vocabulary matching (expensive — done once per prediction)
-# ---------------------------------------------------------------------------
-
-def fuzzy_find_best_matches(
-    pred_names: list[str],
-    all_drug_names: list[str],
-) -> list[dict]:
-    """For each prediction, find the closest drug name in the vocabulary.
-
-    Returns a list of ``{prediction, best_match, similarity}`` dicts.
-    The threshold is **not** applied here — that is done in :func:`apply_threshold`
-    so the expensive O(P x V) loop only runs once.
-    """
-    matches: list[dict] = []
-    for pred in pred_names:
-        best_score = 0.0
-        best_name = None
-        for name in all_drug_names:
-            score = fuzzy_similarity(pred, name)
-            if score > best_score:
-                best_score = score
-                best_name = name
-        matches.append({
-            "prediction": pred,
-            "best_match": best_name,
-            "similarity": round(best_score, 4) if best_name else 0.0,
-        })
-    return matches
-
-
-def apply_threshold(
-    matches: list[dict],
-    threshold: float,
-) -> tuple[list[str], list[dict]]:
-    """Apply a similarity threshold to pre-computed best matches.
-
-    Returns ``(corrected_predictions, match_details)``.
-    """
-    corrected: list[str] = []
-    details: list[dict] = []
-    for m in matches:
-        if m["similarity"] >= threshold and m["best_match"] is not None:
-            corrected.append(m["best_match"])
-            details.append({
-                "prediction": m["prediction"],
-                "corrected_to": m["best_match"],
-                "similarity": m["similarity"],
-                "accepted": True,
-            })
-        else:
-            corrected.append(m["prediction"])  # keep original
-            details.append({
-                "prediction": m["prediction"],
-                "corrected_to": None,
-                "closest_match": m["best_match"],
-                "similarity": m["similarity"],
-                "accepted": False,
-            })
-    return corrected, details
 
 
 # ---------------------------------------------------------------------------
@@ -150,17 +229,24 @@ def parse_args() -> argparse.Namespace:
         help="Path to save the main evaluation report",
     )
     parser.add_argument(
-        "--drug_names_path",
+        "--drug_roots_path",
         type=str,
         required=True,
-        help="Path to the drug names JSON produced by extract_drug_names.py",
+        help="Path to drug_roots.json (maps drug names to roots and variants)",
+    )
+    parser.add_argument(
+        "--exclusion_path",
+        type=str,
+        default=None,
+        help="Path to drugs_exclusion.csv (drug_name,is_exclusion). "
+             "When provided, exclusion detection metrics are reported.",
     )
     parser.add_argument(
         "--fuzzy_thresholds",
         type=float,
         nargs="+",
         default=[0.5, 0.6, 0.7, 0.8, 0.9],
-        help="Fuzzy similarity thresholds to evaluate (default: 0.5 0.6 0.7 0.8 0.9)",
+        help="Fuzzy similarity thresholds for variant matching (default: 0.5 0.6 0.7 0.8 0.9)",
     )
     return parser.parse_args()
 
@@ -176,29 +262,46 @@ def main():
     logger.info(
         "Starting evaluation",
         inference_path=args.inference_path,
-        drug_names_path=args.drug_names_path,
+        drug_roots_path=args.drug_roots_path,
+        exclusion_path=args.exclusion_path,
         thresholds=thresholds,
     )
 
     # ------------------------------------------------------------------ #
-    # Load vocabulary + inference results
+    # Load drug roots index
     # ------------------------------------------------------------------ #
-    with open(args.drug_names_path, "r") as f:
-        drug_names_data = json.load(f)
-    all_drug_names: list[str] = drug_names_data["drug_names"]
-    logger.info("Drug name vocabulary loaded", num_names=len(all_drug_names))
+    with open(args.drug_roots_path, "r") as f:
+        drug_roots_raw = json.load(f)
+    all_variants, variant_to_key = build_variant_index(drug_roots_raw)
+    logger.info(
+        "Drug roots index built",
+        num_entries=len(drug_roots_raw),
+        num_variants=len(all_variants),
+        num_unique_keys=len(set(variant_to_key.values())),
+    )
 
+    # ------------------------------------------------------------------ #
+    # Load exclusion index (optional)
+    # ------------------------------------------------------------------ #
+    exclusion_set: set[str] | None = None
+    if args.exclusion_path:
+        exclusion_set = build_exclusion_set(args.exclusion_path)
+        logger.info("Exclusion index loaded", num_exclusion_drugs=len(exclusion_set))
+
+    # ------------------------------------------------------------------ #
+    # Load inference results
+    # ------------------------------------------------------------------ #
     with open(args.inference_path, "r") as f:
         inference_results = json.load(f)
     logger.info("Inference results loaded", num_samples=len(inference_results))
 
     # ------------------------------------------------------------------ #
-    # Phase 1: Normalize + compute exact match + best vocabulary matches
-    # (The vocabulary matching is O(P x V) per sample — expensive, done once)
+    # Phase 1: Normalize, compute exact string match, and resolve roots
+    # (Variant matching is O(N × V) per name — expensive, done once)
     # ------------------------------------------------------------------ #
     samples: list[dict] = []
 
-    for item in tqdm(inference_results, desc="Computing vocabulary matches"):
+    for item in tqdm(inference_results, desc="Resolving drug roots"):
         # Ground-truth labels
         raw_labels = item.get("verified_drug_names", [])
         labels = sorted(set(normalize_drug_name(n) for n in raw_labels if normalize_drug_name(n)))
@@ -208,20 +311,30 @@ def main():
         raw_preds = preds_obj.get("drug_names", []) if isinstance(preds_obj, dict) else []
         predictions = sorted(set(normalize_drug_name(n) for n in raw_preds if normalize_drug_name(n)))
 
-        # Exact match (threshold-independent)
-        exact_tp, exact_fp, exact_fn = evaluate_exact(predictions, labels)
-        exact_p, exact_r, exact_f1 = _safe_prf(exact_tp, exact_fp, exact_fn)
-
-        # Best vocabulary matches for each prediction (expensive)
-        best_matches = fuzzy_find_best_matches(predictions, all_drug_names)
-
+        # --- Exact string match (no root resolution) ---
         pred_set = set(predictions)
         label_set = set(labels)
+        exact_tp, exact_fp, exact_fn = evaluate_sets(pred_set, label_set)
+        exact_p, exact_r, exact_f1 = _safe_prf(exact_tp, exact_fp, exact_fn)
+
+        # --- Resolve labels to entry keys (fixed 0.5 threshold) ---
+        label_keys, label_match_details = resolve_to_keys(
+            labels, all_variants, variant_to_key, threshold=0.5,
+        )
+        # --- Resolve predictions to entry keys (cache at threshold=0.0;
+        #     actual threshold applied in Phase 3) ---
+        pred_keys, pred_match_details = resolve_to_keys(
+            predictions, all_variants, variant_to_key, threshold=0.0,
+        )
 
         samples.append({
             "transaction_id": item.get("transaction_id", ""),
             "labels": labels,
             "predictions": predictions,
+            "label_keys": sorted(label_keys),
+            "pred_keys": sorted(pred_keys),
+            "label_match_details": label_match_details,
+            "pred_match_details": pred_match_details,
             "exact": {
                 "tp": exact_tp, "fp": exact_fp, "fn": exact_fn,
                 "precision": round(exact_p, 4),
@@ -231,11 +344,10 @@ def main():
                 "false_positives": sorted(pred_set - label_set),
                 "false_negatives": sorted(label_set - pred_set),
             },
-            "best_matches": best_matches,
         })
 
     # ------------------------------------------------------------------ #
-    # Phase 2: Aggregate exact-match metrics
+    # Phase 2: Aggregate exact string match
     # ------------------------------------------------------------------ #
     exact_agg: dict = {"tp": 0, "fp": 0, "fn": 0}
     for s in samples:
@@ -247,7 +359,7 @@ def main():
     exact_agg.update(precision=round(exact_p, 4), recall=round(exact_r, 4), f1=round(exact_f1, 4))
 
     logger.info(
-        "=== Exact Match ===",
+        "=== Exact String Match ===",
         precision=f"{exact_p:.4f}",
         recall=f"{exact_r:.4f}",
         f1=f"{exact_f1:.4f}",
@@ -257,46 +369,95 @@ def main():
     )
 
     # ------------------------------------------------------------------ #
-    # Phase 3: Fuzzy evaluation at each threshold (cheap — just filtering)
+    # Phase 3: Root-based evaluation at each threshold
+    #
+    # Labels are resolved once at a fixed 0.5 threshold.  Only prediction
+    # thresholds vary across iterations.
     # ------------------------------------------------------------------ #
-    fuzzy_results: dict[float, dict] = {}
+    root_results: dict[float, dict] = {}
 
     for threshold in thresholds:
         agg: dict = {"tp": 0, "fp": 0, "fn": 0}
+        excl_agg: dict = {"tp": 0, "fp": 0, "fn": 0, "tn": 0}
         error_analysis: list[dict] = []
 
-        for s in tqdm(samples, desc=f"Fuzzy eval @ {threshold:.2f}", leave=False):
-            corrected, match_details = apply_threshold(s["best_matches"], threshold)
-            corrected_unique = sorted(set(corrected))
-            tp, fp, fn = evaluate_exact(corrected_unique, s["labels"])
+        for s in tqdm(samples, desc=f"Root eval @ {threshold:.2f}", leave=False):
+            # Labels fixed at 0.5; only prediction threshold varies
+            pred_keys = _apply_threshold_to_details(s["pred_match_details"], threshold, variant_to_key)
+            label_keys = set(s["label_keys"])  # already resolved at fixed 0.5
+
+            tp, fp, fn = evaluate_sets(pred_keys, label_keys)
             agg["tp"] += tp
             agg["fp"] += fp
             agg["fn"] += fn
 
-            corrected_set = set(corrected_unique)
-            label_set = set(s["labels"])
-
             error_analysis.append({
                 "transaction_id": s["transaction_id"],
                 "labels": s["labels"],
-                "raw_predictions": s["predictions"],
-                "corrected_predictions": corrected_unique,
-                "true_positives": sorted(corrected_set & label_set),
-                "false_positives": sorted(corrected_set - label_set),
-                "false_negatives": sorted(label_set - corrected_set),
-                "match_details": match_details,
+                "predictions": s["predictions"],
+                "label_keys": sorted(label_keys),
+                "pred_keys": sorted(pred_keys),
+                "true_positives": sorted(pred_keys & label_keys),
+                "false_positives": sorted(pred_keys - label_keys),
+                "false_negatives": sorted(label_keys - pred_keys),
+                "label_match_details": s["label_match_details"],
+                "pred_match_details": s["pred_match_details"],
             })
+
+            # --- Exclusion detection (per-sample binary) ---
+            if exclusion_set is not None:
+                label_has_excl = bool(label_keys & exclusion_set)
+                pred_has_excl = bool(pred_keys & exclusion_set)
+                label_excl_drugs = sorted(label_keys & exclusion_set)
+                pred_excl_drugs = sorted(pred_keys & exclusion_set)
+
+                if label_has_excl and pred_has_excl:
+                    excl_agg["tp"] += 1
+                elif pred_has_excl and not label_has_excl:
+                    excl_agg["fp"] += 1
+                elif not pred_has_excl and label_has_excl:
+                    excl_agg["fn"] += 1
+                else:
+                    excl_agg["tn"] += 1
+
+                error_analysis[-1]["exclusion"] = {
+                    "label_has_exclusion": label_has_excl,
+                    "pred_has_exclusion": pred_has_excl,
+                    "label_exclusion_drugs": label_excl_drugs,
+                    "pred_exclusion_drugs": pred_excl_drugs,
+                }
 
         p, r, f1 = _safe_prf(agg["tp"], agg["fp"], agg["fn"])
         agg.update(precision=round(p, 4), recall=round(r, 4), f1=round(f1, 4))
 
-        fuzzy_results[threshold] = {
+        root_results[threshold] = {
             "aggregate": agg,
             "error_analysis": error_analysis,
         }
 
+        # Exclusion aggregate for this threshold
+        if exclusion_set is not None:
+            excl_p, excl_r, excl_f1 = _safe_prf(excl_agg["tp"], excl_agg["fp"], excl_agg["fn"])
+            excl_agg.update(
+                precision=round(excl_p, 4),
+                recall=round(excl_r, 4),
+                f1=round(excl_f1, 4),
+            )
+            root_results[threshold]["exclusion"] = excl_agg
+
+            logger.info(
+                f"=== Exclusion Detection @ threshold={threshold:.2f} ===",
+                precision=f"{excl_p:.4f}",
+                recall=f"{excl_r:.4f}",
+                f1=f"{excl_f1:.4f}",
+                tp=excl_agg["tp"],
+                fp=excl_agg["fp"],
+                fn=excl_agg["fn"],
+                tn=excl_agg["tn"],
+            )
+
         logger.info(
-            f"=== Fuzzy Match @ threshold={threshold:.2f} ===",
+            f"=== Root Match @ threshold={threshold:.2f} ===",
             precision=f"{p:.4f}",
             recall=f"{r:.4f}",
             f1=f"{f1:.4f}",
@@ -306,7 +467,7 @@ def main():
         )
 
     # ------------------------------------------------------------------ #
-    # Phase 4: Build per-sample records (exact + all fuzzy thresholds)
+    # Phase 4: Build per-sample records
     # ------------------------------------------------------------------ #
     per_sample: list[dict] = []
     for i, s in enumerate(samples):
@@ -315,16 +476,19 @@ def main():
             "labels": s["labels"],
             "predictions": s["predictions"],
             "exact": s["exact"],
-            "fuzzy": {},
+            "root": {},
         }
         for threshold in thresholds:
-            ea = fuzzy_results[threshold]["error_analysis"][i]
-            record["fuzzy"][str(threshold)] = {
-                "corrected_predictions": ea["corrected_predictions"],
+            ea = root_results[threshold]["error_analysis"][i]
+            record["root"][str(threshold)] = {
+                "label_keys": ea["label_keys"],
+                "pred_keys": ea["pred_keys"],
                 "true_positives": ea["true_positives"],
                 "false_positives": ea["false_positives"],
                 "false_negatives": ea["false_negatives"],
             }
+            if "exclusion" in ea:
+                record["root"][str(threshold)]["exclusion"] = ea["exclusion"]
         per_sample.append(record)
 
     # ------------------------------------------------------------------ #
@@ -339,19 +503,29 @@ def main():
     report = {
         "config": {
             "inference_path": args.inference_path,
-            "drug_names_path": args.drug_names_path,
+            "drug_roots_path": args.drug_roots_path,
+            "exclusion_path": args.exclusion_path,
             "fuzzy_thresholds": thresholds,
-            "num_drug_names_in_vocabulary": len(all_drug_names),
+            "num_drug_entries": len(drug_roots_raw),
+            "num_variants": len(all_variants),
+            "num_exclusion_drugs": len(exclusion_set) if exclusion_set else 0,
             "num_samples": len(samples),
         },
         "aggregate": {
             "exact": exact_agg,
-            "fuzzy": {
-                str(t): fuzzy_results[t]["aggregate"] for t in thresholds
+            "root": {
+                str(t): root_results[t]["aggregate"] for t in thresholds
             },
         },
         "per_sample": per_sample,
     }
+
+    # Add exclusion aggregate if available
+    if exclusion_set is not None:
+        report["aggregate"]["exclusion"] = {
+            str(t): root_results[t]["exclusion"] for t in thresholds
+            if "exclusion" in root_results[t]
+        }
 
     with open(output_path, "w") as f:
         json.dump(report, f, indent=2, ensure_ascii=False)
@@ -367,12 +541,35 @@ def main():
         ea_path = os.path.join(ea_dir, f"threshold_{threshold:.2f}.json")
         with open(ea_path, "w") as f:
             json.dump(
-                fuzzy_results[threshold]["error_analysis"],
+                root_results[threshold]["error_analysis"],
                 f, indent=2, ensure_ascii=False,
             )
         logger.info("Error analysis saved", threshold=threshold, path=ea_path)
 
     logger.info("Evaluation complete")
+
+
+def _apply_threshold_to_details(
+    match_details: list[dict],
+    threshold: float,
+    variant_to_key: dict[str, str],
+) -> set[str]:
+    """Re-derive entry keys from cached match details using a new threshold.
+
+    If the best-variant similarity >= threshold, use the variant's entry key.
+    Otherwise fall back to the original name as an unresolved key.
+    """
+    keys: set[str] = set()
+    for d in match_details:
+        if d.get("exact_variant_match") or d["similarity"] >= threshold:
+            best_variant = d["best_variant"]
+            if best_variant in variant_to_key:
+                keys.add(variant_to_key[best_variant])
+            else:
+                keys.add(d["name"])
+        else:
+            keys.add(d["name"])
+    return keys
 
 
 if __name__ == "__main__":
