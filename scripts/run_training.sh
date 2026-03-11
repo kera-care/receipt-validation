@@ -34,7 +34,7 @@ MAX_PIXELS="${MAX_PIXELS:-1048576}"
 IMAGE_SIZE="${IMAGE_SIZE:-1024}"
 
 # ── LoRA (set USE_LORA=true to enable) ────────────────────────────────
-USE_LORA="${USE_LORA:-false}"
+USE_LORA="${USE_LORA:-true}"
 LORA_RANK="${LORA_RANK:-64}"
 LORA_ALPHA="${LORA_ALPHA:-128}"
 LORA_DROPOUT="${LORA_DROPOUT:-0.05}"
