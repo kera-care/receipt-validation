@@ -9,6 +9,8 @@ logger = get_logger(__name__)
 
 from .prompts import DRUG_NAME_EXTRACTION_PROMPTS
 
+MAX_IMAGES_PER_MESSAGE = 1  # Current models only support one image per message, so we will use only the first image for now.
+
 
 def normalize_drug_name(name: str) -> str:
     """ Normalizes drug name by lowercasing, stripping white spaces, normalizing spaces and stripping accented characters.
@@ -51,6 +53,8 @@ def load_tasks(tasks_path: str, images_root_dir: str, prompt: str, validate_imag
         normalized_labels = [normalize_drug_name(label) for label in labels]
         normalized_labels = list(set(normalized_labels))
         normalized_labels.sort()
+
+        image_paths = image_paths[:MAX_IMAGES_PER_MESSAGE]
 
         user_message_contents = [
             {

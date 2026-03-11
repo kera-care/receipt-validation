@@ -37,7 +37,7 @@ IMAGE_SIZE="${IMAGE_SIZE:-1024}"
 USE_LORA="${USE_LORA:-true}"
 LORA_RANK="${LORA_RANK:-64}"
 LORA_ALPHA="${LORA_ALPHA:-128}"
-LORA_DROPOUT="${LORA_DROPOUT:-0.05}"
+LORA_DROPOUT="${LORA_DROPOUT:-0.1}"
 
 # ── Training hyperparams ─────────────────────────────────────────────
 # Defaults change depending on USE_LORA (LoRA benefits from a higher LR)
@@ -51,11 +51,12 @@ LOGGING_STEPS="${LOGGING_STEPS:-10}"
 EVAL_STEPS="${EVAL_STEPS:-200}"
 SAVE_STEPS="${SAVE_STEPS:-200}"
 
+TIMESTAMP=$(date +"%Y%m%d_%H%M%S")
 STDOUT_LOG="logs/training_${TIMESTAMP}_stdout.log"
 STDERR_LOG="logs/training_${TIMESTAMP}_stderr.log"
 
 if [ "${USE_LORA}" = "true" ]; then
-    LEARNING_RATE="${LEARNING_RATE:-1e-4}"
+    LEARNING_RATE="${LEARNING_RATE:-5e-5}"
     OUTPUT_DIR="${OUTPUT_DIR:-outputs/glm-ocr-finetune-lora}-${NUM_EPOCHS}-epochs"
 else
     LEARNING_RATE="${LEARNING_RATE:-2e-5}"

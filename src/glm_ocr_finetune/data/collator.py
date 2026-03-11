@@ -50,20 +50,6 @@ class DrugNameDataCollator:
         ]
 
 
-    def _ensure_single_image_per_message(self, messages: List[Dict[str, Any]]) -> str | None:
-        output = []
-        for message in messages:
-            contents = []
-            image_count = 0
-            for content in message["content"]:
-                if content["type"] == "image":
-                    image_count += 1
-                    if image_count > 1:
-                        continue
-                contents.append(content)
-            message["content"] = contents
-            output.append(message)
-        return output
 
     def extract_image_urls(self, messages_list: List[List[Dict[str, Any]]]) -> List[str | None]:
         image_urls = []
@@ -95,7 +81,6 @@ class DrugNameDataCollator:
             )
 
         messages_list = [messages_list[i] for i in non_null_image_indices]
-        messages_list = [self._ensure_single_image_per_message(messages) for messages in messages_list]
 
         image_urls = [image_urls[i] for i in non_null_image_indices]
 
