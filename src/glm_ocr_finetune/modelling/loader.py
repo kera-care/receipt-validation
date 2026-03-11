@@ -1,3 +1,5 @@
+from PIL import Image
+
 from transformers import AutoProcessor, AutoModelForImageTextToText
 import structlog
 
@@ -103,16 +105,38 @@ if __name__ == "__main__":
             ],
         }
     ]
+    messages_list = [
+        messages,
+        messages
+    ]
     device = torch.device("mps" if torch.backends.mps.is_available() else "cpu")
     processor, model = load_base_model()
-    inputs = processor.apply_chat_template(
-        messages,
-        tokenize=True,
+    processor = setup_glm_processor(processor, log_messages=True, max_pixels=262144, image_size=512)
+    text = processor.apply_chat_template(
+        messages_list,
+        tokenize=False,
         add_generation_prompt=True,
         return_dict=True,
         return_tensors="pt",
         enable_thinking=False
+    )
+
+    image = Image.open("sample-images/test_image.jpg").convert("RGB")
+
+    inputs = processor(
+        text=text,
+        images=[[image], [image]],
+        return_tensors="pt",
+        truncation=True,
+        max_length=4096,
+        padding="longest",
     ).to(device)
+
+
+
+    for key, value in inputs.items():
+        logger.info(f"{key}: shape={value.shape}, dtype={value.dtype}")
+
     model.to(device)
     inputs.pop("token_type_ids", None)
     start = time.time()
@@ -122,6 +146,7 @@ if __name__ == "__main__":
 
     input_ids = inputs["input_ids"]
     input_ids_decoded = processor.batch_decode(input_ids, skip_special_tokens=False)
+    print("Decoded Input:", input_ids_decoded)
     generated_ids = model.generate(**inputs, max_new_tokens=4096)
     output_text = processor.decode(generated_ids[0][inputs["input_ids"].shape[1]:], skip_special_tokens=True)
     print(output_text)

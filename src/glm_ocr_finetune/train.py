@@ -16,12 +16,11 @@ import torch
 import structlog
 from transformers import TrainingArguments, Trainer
 from transformers.trainer_utils import get_last_checkpoint
-from transformers.trainer_utils import get_last_checkpoint
 
 from glm_ocr_finetune.config import ModelConfig, DataConfig, TrainingConfig, LoRAConfig
 from glm_ocr_finetune.modelling.loader import load_base_model
 from glm_ocr_finetune.data.utils import load_drug_name_extraction_dataset
-from glm_ocr_finetune.data.collator import DrugNameDataCollator
+from glm_ocr_finetune.data.collator import DrugNameDataCollator, get_ocr_friendly_augmentation
 
 logger = structlog.get_logger(__name__)
 
@@ -198,6 +197,7 @@ def main():
         processor=processor,
         max_length=args.max_length,
         assistant_only=args.assistant_only,
+        augmentation=get_ocr_friendly_augmentation(),
     )
 
     # ------------------------------------------------------------------ #

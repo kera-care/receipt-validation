@@ -1,10 +1,33 @@
 
 from dataclasses import dataclass
-from typing import List, Dict, Any
+import json
+from tkinter import Image
+from typing import Callable, List, Dict, Any
 import structlog
 import torch
+import kornia.augmentation as K
+from torchvision.transforms.functional import to_tensor, to_pil_image
+from PIL import Image
 
 logger = structlog.get_logger(__name__)
+
+
+def get_ocr_friendly_augmentation():
+    # Light, text-preserving augs for OCR
+    return torch.nn.Sequential(
+        K.RandomRotation(degrees=6.0, p=0.3),
+        K.RandomPerspective(0.15, p=0.3),
+        K.RandomGaussianBlur((3,3), (0.1, 1.2), p=0.35),
+        K.RandomSharpness(sharpness=1.5, p=0.3),
+        K.ColorJitter(brightness=0.2, contrast=0.2, saturation=0.05, hue=0.02, p=0.5),
+        K.RandomErasing(p=0.2, scale=(0.01, 0.03), ratio=(0.2, 3.0), value=0.0),
+    )
+
+def apply_augmentation(k_aug: torch.nn.Sequential, img: Image.Image, device=torch.device("cpu")):
+    x = to_tensor(img.convert("RGB")).unsqueeze(0).to(device)    # [1,3,H,W], 0..1
+    with torch.no_grad():
+        y = k_aug(x)
+    return to_pil_image(y.squeeze(0).clamp(0,1).cpu())
 
 
 @dataclass
@@ -15,26 +38,120 @@ class DrugNameDataCollator:
     assistance_prefix: str = "<|assistant|>"
     thinking_prefix: str = "\n<think></think>\n"
     image_tokens = []
+    augmentation: Callable[[Image.Image], Image.Image] | None = None
 
 
-    def __call__(self, batch: List[Dict[str, Any]]) -> Dict[str, torch.Tensor]:
-        messages_list = [batch_item["messages"] for batch_item in batch]
-        image_tokens = [
+    @property
+    def image_tokens(self) -> List[int]:
+        return [
             self.processor.image_token,
             "<|begin_of_image|>",
             "<|end_of_image|>"
         ]
+    def _validate_single_image_per_message(self, messages_list: List[List[Dict[str, Any]]]) -> None:
+        for messages in messages_list:
+            image_count = 0
+            for message in messages:
+                for content in message["content"]:
+                    if content["type"] == "image":
+                        image_count += 1
+            if image_count > 1:
+                logger.warning(
+                    "Multiple images found in a single message. Only the first image will be processed.",
+                    messages=str(messages)[:100],
+                    total_images=image_count
+                )
 
-        image_token_ids = self.processor.tokenizer.convert_tokens_to_ids(image_tokens)
+    def _ensure_single_image_per_message(self, messages: List[Dict[str, Any]]) -> str | None:
+        image_contents = 0
+        output = []
+        for message in messages:
+            contents = []
+            for content in message["content"]:
+                if content["type"] == "image":
+                    image_contents += 1
+                    if image_contents > 1:
+                        logger.warning(
+                            "Multiple images found in a single message. Only the first image will be processed.",
+                            message=str(message)[:100],
+                            total_images=image_contents
+                        )
+                        continue
+                contents.append(content)
+            message["content"] = contents
+            output.append(message)
+        return output
 
-        inputs = self.processor.apply_chat_template(
+    def extract_image_urls(self, messages_list: List[List[Dict[str, Any]]]) -> List[str | None]:
+        image_urls = []
+
+        # Currently this just logs a warning if multiple images are found, but it could be changed to 
+        # raise an error or implement a different strategy.
+        self._validate_single_image_per_message(messages_list)
+        
+        for messages in messages_list:
+            image_url = None
+            for message in messages:
+                for content in message["content"]:
+                    if content["type"] == "image":
+                        image_url = content["url"]
+                        break
+                if image_url:
+                    break
+            image_urls.append(image_url)
+            if image_url is None:
+                logger.warning("No image found in messages", messages=messages)
+        return image_urls
+    
+
+    def prepare_inputs(self, batch: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        messages_list = [batch_item["messages"] for batch_item in batch]
+        image_urls = self.extract_image_urls(messages_list)
+        non_null_image_indices = [i for i, url in enumerate(image_urls) if url is not None]
+        if len(non_null_image_indices) < len(image_urls):
+            logger.warning(
+                "Some messages have no images. This may lead to unexpected behavior.",
+                total_messages=len(messages_list),
+                messages_without_images=len(image_urls) - len(non_null_image_indices)
+            )
+
+        messages_list = [messages_list[i] for i in non_null_image_indices]
+        messages_list = [self._ensure_single_image_per_message(messages) for messages in messages_list]
+
+        image_urls = [image_urls[i] for i in non_null_image_indices]
+
+
+        images = [Image.open(image_url) for image_url in image_urls]
+        if self.augmentation is not None:
+            images = [
+                apply_augmentation(self.augmentation, image)
+                for image in images
+            ]
+
+        return messages_list, images
+        
+
+
+    def __call__(self, batch: List[Dict[str, Any]]) -> Dict[str, torch.Tensor]:
+        
+        messages_list, images = self.prepare_inputs(batch)
+
+        image_token_ids = self.processor.tokenizer.convert_tokens_to_ids(self.image_tokens)
+
+        texts = self.processor.apply_chat_template(
             messages_list,
-            tokenize=True,
+            tokenize=False,
             add_generation_prompt=False,
             return_dict=True,
             return_tensors="pt",
             enable_thinking=False,
-            padding="max_length",
+        )
+
+        inputs = self.processor(
+            text=texts,
+            images=images,
+            return_tensors="pt",
+            padding="longest",
             truncation=True,
             max_length=self.max_length
         )
@@ -85,13 +202,15 @@ if __name__ == "__main__":
     
     processor = AutoProcessor.from_pretrained(model_path, use_fast=False)
     processor = setup_glm_processor(processor, log_messages=True, max_pixels=262144, image_size=512)
-    print("Image tokens: ", processor.image_token)
-    print("EOS token: ", processor.eos_token)
 
     messages = [
         {
             "role": "user",
             "content": [
+                {
+                    "type": "image",
+                    "url": "sample-images/test_image.jpg"
+                },
                 {
                     "type": "image",
                     "url": "sample-images/test_image.jpg"
@@ -112,7 +231,9 @@ if __name__ == "__main__":
             ],
         }
     ]
-    collator = DrugNameDataCollator(processor, assistant_only=True)
+
+    aug = get_ocr_friendly_augmentation()
+    collator = DrugNameDataCollator(processor, assistant_only=True, augmentation=aug)
     batch = [{"messages": messages}]
     inputs = collator(batch)
     for key in inputs:
