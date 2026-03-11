@@ -51,6 +51,9 @@ LOGGING_STEPS="${LOGGING_STEPS:-10}"
 EVAL_STEPS="${EVAL_STEPS:-200}"
 SAVE_STEPS="${SAVE_STEPS:-200}"
 
+STDOUT_LOG="logs/training_${TIMESTAMP}_stdout.log"
+STDERR_LOG="logs/training_${TIMESTAMP}_stderr.log"
+
 if [ "${USE_LORA}" = "true" ]; then
     LEARNING_RATE="${LEARNING_RATE:-1e-4}"
     OUTPUT_DIR="${OUTPUT_DIR:-outputs/glm-ocr-finetune-lora}-${NUM_EPOCHS}-epochs"
@@ -120,4 +123,6 @@ poetry run accelerate launch \
     --save_steps "${SAVE_STEPS}" \
     --gradient_checkpointing \
     --assistant_only \
-    ${LORA_FLAGS}
+    ${LORA_FLAGS} \
+    > >(tee -a "$STDOUT_LOG") \
+    2> >(tee -a "$STDERR_LOG" >&2)

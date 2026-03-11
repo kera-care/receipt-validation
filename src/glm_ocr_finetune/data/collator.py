@@ -1,7 +1,7 @@
 
 from dataclasses import dataclass
 import json
-from tkinter import Image
+from PIL import Image
 from typing import Callable, List, Dict, Any
 import structlog
 import torch
@@ -48,34 +48,17 @@ class DrugNameDataCollator:
             "<|begin_of_image|>",
             "<|end_of_image|>"
         ]
-    def _validate_single_image_per_message(self, messages_list: List[List[Dict[str, Any]]]) -> None:
-        for messages in messages_list:
-            image_count = 0
-            for message in messages:
-                for content in message["content"]:
-                    if content["type"] == "image":
-                        image_count += 1
-            if image_count > 1:
-                logger.warning(
-                    "Multiple images found in a single message. Only the first image will be processed.",
-                    messages=str(messages)[:100],
-                    total_images=image_count
-                )
+
 
     def _ensure_single_image_per_message(self, messages: List[Dict[str, Any]]) -> str | None:
-        image_contents = 0
         output = []
         for message in messages:
             contents = []
+            image_count = 0
             for content in message["content"]:
                 if content["type"] == "image":
-                    image_contents += 1
-                    if image_contents > 1:
-                        logger.warning(
-                            "Multiple images found in a single message. Only the first image will be processed.",
-                            message=str(message)[:100],
-                            total_images=image_contents
-                        )
+                    image_count += 1
+                    if image_count > 1:
                         continue
                 contents.append(content)
             message["content"] = contents
@@ -84,10 +67,6 @@ class DrugNameDataCollator:
 
     def extract_image_urls(self, messages_list: List[List[Dict[str, Any]]]) -> List[str | None]:
         image_urls = []
-
-        # Currently this just logs a warning if multiple images are found, but it could be changed to 
-        # raise an error or implement a different strategy.
-        self._validate_single_image_per_message(messages_list)
         
         for messages in messages_list:
             image_url = None
@@ -102,7 +81,7 @@ class DrugNameDataCollator:
             if image_url is None:
                 logger.warning("No image found in messages", messages=messages)
         return image_urls
-    
+
 
     def prepare_inputs(self, batch: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         messages_list = [batch_item["messages"] for batch_item in batch]
@@ -240,13 +219,13 @@ if __name__ == "__main__":
         logger.info(f"{key}: {inputs[key].shape}, dtype={inputs[key].dtype}")
     input_ids = inputs["input_ids"]
     input_ids_decoded = processor.batch_decode(input_ids, skip_special_tokens=False)
-    print("Decoded Input:", input_ids_decoded)
+    # print("Decoded Input:", input_ids_decoded)
 
     labels = inputs["labels"]
     # Set -100 to a special token for decoding
     special_token_id = processor.tokenizer.convert_tokens_to_ids("<sop>")
     labels[labels == -100] = special_token_id
     labels_decoded = processor.batch_decode(labels, skip_special_tokens=False)
-    print("Decoded Labels:", labels_decoded)
- 
+    # print("Decoded Labels:", labels_decoded)
+
 
