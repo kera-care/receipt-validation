@@ -6,7 +6,7 @@ set -euo pipefail
 # ──────────────────────────────────────────────────────────────────────
 
 # ── Paths ────────────────────────────────────────────────────────────
-MODEL_PATH="${MODEL_PATH:-outputs/glm-ocr-finetune-20-epochs/final_model}"
+MODEL_PATH="${MODEL_PATH:-outputs/glm-ocr-finetune-lora-10-epochs/final_model_merged}"
 LORA_PATH="${LORA_PATH:-}"  # set to adapter dir to load LoRA on top of base model
 DATASET_PATH="${DATASET_PATH:-../kera-vision-llm-finetune/multi-task-data/prescription_dataset/splits/dev_tasks.json}"
 IMAGES_ROOT_DIR="${IMAGES_ROOT_DIR:-/mnt/datadrive/vision-llm-finetune-data/images/prod-prescriptions}"
