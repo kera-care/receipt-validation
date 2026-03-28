@@ -88,7 +88,7 @@ class Perturbation:
 
 
     def apply(self, name: str) -> str:
-       return self.function(name)
+        return self.function(name)
 
 
 
@@ -97,7 +97,7 @@ class PerturbationPipeline:
     def __init__(self, 
         candidate_generator: StringMatcher,
         apply_probability: float = 0.5,
-        perturbation_probabilities: dict[str, float] = None
+        perturbation_probabilities: dict[str, float] | None = None
     ):
         self.apply_probability = apply_probability
         self.candidate_generator = candidate_generator
@@ -158,9 +158,15 @@ class PerturbationPipeline:
             elif perturbation_type == "fake_name":
                 perturbed_name = self.fake_name_perturbation.apply(name)
             elif perturbation_type == "replace_with_similar":
-                perturbed_name = self.fuzzy_match_perturbation.apply(name) or name
+                perturbed_name = self.fuzzy_match_perturbation.apply(name)
+                if perturbed_name is None:  # Fallback to original name if no similar drug found
+                    if random.random() < 0.5:
+                        perturbed_name = self.ocr_perturbation.apply(name)
+                    else:
+                        perturbed_name = self.fake_name_perturbation.apply(name)
             else:
                 perturbed_name = name
+                
 
             output.append(perturbed_name)
 
@@ -177,11 +183,12 @@ class PerturbationPipeline:
 
 if __name__ == "__main__":
     # Example usage
+    import structlog
+    logger = structlog.get_logger(__name__)
     matcher = StringMatcher(candidates=["amoxicilline", "ibuprofene", "paracetamol", "amoxapine"])
     pipeline = PerturbationPipeline(candidate_generator=matcher, apply_probability=1.0)  # Always apply perturbation for testing
     original_names = ["amoxicilline", "ibuprofene"]
     perturbed_names = pipeline.perturb(original_names)
-    print("Original  :", original_names)
-    print("Perturbed :", perturbed_names)
-
+    logger.info("Original names", original=original_names)
+    logger.info("Perturbed names", perturbed=perturbed_names)
 
