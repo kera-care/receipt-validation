@@ -86,12 +86,8 @@ class Perturbation:
     description: str
     function: Callable[[str], str]
 
-
     def apply(self, name: str) -> str:
         return self.function(name)
-
-
-
 
 class PerturbationPipeline:
     def __init__(self, 
@@ -159,13 +155,14 @@ class PerturbationPipeline:
                 perturbed_name = self.fake_name_perturbation.apply(name)
             elif perturbation_type == "replace_with_similar":
                 perturbed_name = self.fuzzy_match_perturbation.apply(name)
-                if perturbed_name is None:  # Fallback to original name if no similar drug found
+                if perturbed_name is None:  # Fallback to either OCR or fake name perturbation if no similar drug found
                     if random.random() < 0.5:
                         perturbed_name = self.ocr_perturbation.apply(name)
                     else:
                         perturbed_name = self.fake_name_perturbation.apply(name)
             else:
-                perturbed_name = name
+                # This should never happen due to the validation in __init__, but we include it for completeness
+                raise ValueError(f"Unknown perturbation type: {perturbation_type}")
                 
 
             output.append(perturbed_name)
@@ -191,4 +188,3 @@ if __name__ == "__main__":
     perturbed_names = pipeline.perturb(original_names)
     logger.info("Original names", original=original_names)
     logger.info("Perturbed names", perturbed=perturbed_names)
-
