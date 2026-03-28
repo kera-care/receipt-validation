@@ -217,3 +217,7 @@ __marimo__/
 sample-images/
 sample-datasets/
 outputs
+.DS_Store
+shifted-images
+sample-images
+runs

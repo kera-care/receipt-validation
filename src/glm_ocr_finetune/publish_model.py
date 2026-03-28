@@ -91,8 +91,8 @@ outputs = model.generate(**inputs, max_new_tokens=128)
     )
 
     logger.info("Publishing model to Hugging Face Hub", hub_model_id=args.hub_model_id)
-    processor.push_to_hub(args.hub_model_id, use_auth_token=args.token)
-    model.push_to_hub(args.hub_model_id, use_auth_token=args.token)
+    processor.push_to_hub(args.hub_model_id, token=args.token)
+    model.push_to_hub(args.hub_model_id, token=args.token)
     logger.info("Model published successfully", hub_model_id=args.hub_model_id)
 
 if __name__ == "__main__":
