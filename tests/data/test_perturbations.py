@@ -77,9 +77,10 @@ class TestFakeNamePerturbation:
 
     def test_result_differs_from_input(self):
         # With a different prefix/suffix the result should change
-        random.seed(42)
         result = fake_name_perturbation("ibuprofene")
         assert isinstance(result, str)
+        assert result != "ibuprofene"
+
 
     def test_existing_prefix_is_replaced(self):
         # "amoxicilline" starts with "amo" — it should be replaced
@@ -121,7 +122,7 @@ class TestFuzzyMatchPerturbation:
     def test_returns_similar_drug_from_candidates(self, matcher):
         # "amoxicilline" and "amoxapine" are similar — should return amoxapine
         result = fuzzy_match_perturbation("amoxicilline", matcher, threshold=0.7)
-        assert result in CANDIDATES
+        assert result in matcher.candidates
 
     def test_does_not_return_query_itself(self, matcher):
         result = fuzzy_match_perturbation("amoxicilline", matcher, threshold=0.7)
