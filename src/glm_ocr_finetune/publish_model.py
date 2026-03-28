@@ -6,6 +6,13 @@ import argparse
 import structlog
 logger = structlog.get_logger(__name__)
 
+
+DTYPE_MAP = {
+    "bfloat16": torch.bfloat16,
+    "float16": torch.float16,
+    "float32": torch.float32,
+}
+
 def get_args():
     parser = argparse.ArgumentParser(description="Publish a fine-tuned GLM-OCR model to Hugging Face Hub")
     parser.add_argument("--model_path", type=str, required=True, help="Path to the fine-tuned model directory")
@@ -16,11 +23,6 @@ def get_args():
     parser.add_argument("--image_size", type=int, default=None, help="Image size for model input")
     return parser.parse_args()
 
-DTYPE_MAP = {
-    "bfloat16": torch.bfloat16,
-    "float16": torch.float16,
-    "float32": torch.float32,
-}
 
 
 def main():
@@ -91,8 +93,8 @@ outputs = model.generate(**inputs, max_new_tokens=128)
     )
 
     logger.info("Publishing model to Hugging Face Hub", hub_model_id=args.hub_model_id)
-    processor.push_to_hub(args.hub_model_id, use_auth_token=args.token)
-    model.push_to_hub(args.hub_model_id, use_auth_token=args.token)
+    processor.push_to_hub(args.hub_model_id, token=args.token)
+    model.push_to_hub(args.hub_model_id, token=args.token)
     logger.info("Model published successfully", hub_model_id=args.hub_model_id)
 
 if __name__ == "__main__":
