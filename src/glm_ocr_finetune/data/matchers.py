@@ -83,14 +83,14 @@ class StringMatcher:
         return f1_score
     
 
-    def get_similar_drugs(self, query: str, threshold: float = DEFAULT_SIMILARITY_THRESHOLD) -> list[str]:
+    def get_similar_drugs(self, query: str, threshold: float = DEFAULT_SIMILARITY_THRESHOLD, exclude_query: bool = True) -> list[str]:
         """
         Get a list of drugs that are similar to the query string based on a similarity threshold.
 
         Args:
             query (str): The string to match.
             threshold (float): The minimum similarity score for a drug to be considered similar.
-
+            exclude_query (bool): Whether to exclude the query itself from the results.
         Returns:
             list[str]: A list of similar drug names.
         """
@@ -98,7 +98,7 @@ class StringMatcher:
         normalized_query = normalize_drug_name(query)
         similar_drugs = [
             match["drug_name"] 
-            for match in matches if match["score"] > threshold and match["drug_name"] != normalized_query
+            for match in matches if match["score"] > threshold and (not exclude_query or match["drug_name"] != normalized_query)
         ]
         return similar_drugs
     
