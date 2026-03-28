@@ -28,21 +28,19 @@ def normalize_drug_name(name: str) -> str:
     return name
 
 
-def normalize_drug_names(names):
+def normalize_drug_names(names: list[str]) -> list[str]:
     """ Normalizes a list of drug names.
 
     Args:
-        names (List[str]): The list of drug names to normalize.
+        names (list[str]): The list of drug names to normalize.
     
     Returns:
-        List[str]: The list of normalized drug names.
+        list[str]: The list of normalized drug names.
     """
     names =  [normalize_drug_name(name) for name in names]
     names = list(set(names))
     names.sort()
     return names
-
-
 
 
 def load_tasks(tasks_path: str, images_root_dir: str, prompt: str, validate_image_paths: bool = True, skip_missing_images: bool = True):

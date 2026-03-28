@@ -1,7 +1,9 @@
-import csv
 from rapidfuzz import process as rf_process
 from rapidfuzz.distance import JaroWinkler
 from glm_ocr_finetune.data.utils import normalize_drug_name
+
+
+DEFAULT_SIMILARITY_THRESHOLD = 0.8
 
 
 class StringMatcher:
@@ -42,7 +44,8 @@ class StringMatcher:
 
     def fuzz_f1_score(
         self, predictions: list[str], ground_truths: list[str],
-        prediction_threshold: float = 0.8, reference_threshold: float = 0.8,
+        prediction_threshold: float = DEFAULT_SIMILARITY_THRESHOLD, 
+        reference_threshold: float = DEFAULT_SIMILARITY_THRESHOLD,
         prediction_top_n: int = 1
     ) -> float:
         """
@@ -80,7 +83,7 @@ class StringMatcher:
         return f1_score
     
 
-    def get_similar_drugs(self, query: str, threshold: float = 0.8) -> list[str]:
+    def get_similar_drugs(self, query: str, threshold: float = DEFAULT_SIMILARITY_THRESHOLD) -> list[str]:
         """
         Get a list of drugs that are similar to the query string based on a similarity threshold.
 
@@ -93,11 +96,11 @@ class StringMatcher:
         """
         matches = self.match(query, limit=len(self.candidates))
         normalized_query = normalize_drug_name(query)
-        similar_drugs = [match["drug_name"] for match in matches if match["score"] > threshold  and match["drug_name"] != normalized_query]
+        similar_drugs = [match["drug_name"] for match in matches if match["score"] > threshold and match["drug_name"] != normalized_query]
         return similar_drugs
     
 
-    def is_valid_pair(self, chosen: list[str], reference: list[str], ground_truth: list[str], threshold: float = 0.8) -> bool:
+    def is_valid_pair(self, chosen: list[str], reference: list[str], ground_truth: list[str], threshold: float = DEFAULT_SIMILARITY_THRESHOLD) -> bool:
         """
         Check if the chosen drug names are a valid match to the reference drug names based on their similarity to the ground truth drug names.
 
@@ -110,7 +113,8 @@ class StringMatcher:
             threshold (float): The minimum similarity score for a pair to be considered valid.
 
         Returns:
-            bool: True if there is at least one valid pair of chosen and reference drug names, False otherwise.
+            bool: True if there is a valid pair, False otherwise. Valid means that the the chosen drug names have a higher F1 score against the ground truth than
+            the reference drug names do against the ground truth.
         """
 
         chosen_f1_score = self.fuzz_f1_score(chosen, ground_truth, prediction_threshold=threshold, reference_threshold=threshold, prediction_top_n=1)
