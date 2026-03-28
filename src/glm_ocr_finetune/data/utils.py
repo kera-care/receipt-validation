@@ -37,7 +37,7 @@ def normalize_drug_names(names: list[str]) -> list[str]:
     Returns:
         list[str]: The list of normalized drug names.
     """
-    names =  [normalize_drug_name(name) for name in names]
+    names = [normalize_drug_name(name) for name in names]
     names = list(set(names))
     names.sort()
     return names

@@ -3,7 +3,7 @@ from rapidfuzz.distance import JaroWinkler
 from glm_ocr_finetune.data.utils import normalize_drug_name
 
 
-DEFAULT_SIMILARITY_THRESHOLD = 0.8
+DEFAULT_SIMILARITY_THRESHOLD = 0.5
 
 
 class StringMatcher:
@@ -96,13 +96,20 @@ class StringMatcher:
         """
         matches = self.match(query, limit=len(self.candidates))
         normalized_query = normalize_drug_name(query)
-        similar_drugs = [match["drug_name"] for match in matches if match["score"] > threshold and match["drug_name"] != normalized_query]
+        similar_drugs = [
+            match["drug_name"] 
+            for match in matches if match["score"] > threshold and match["drug_name"] != normalized_query
+        ]
         return similar_drugs
     
 
-    def is_valid_pair(self, chosen: list[str], reference: list[str], ground_truth: list[str], threshold: float = DEFAULT_SIMILARITY_THRESHOLD) -> bool:
+    def is_valid_pair(
+        self, chosen: list[str], reference: list[str],
+        ground_truth: list[str], threshold: float = DEFAULT_SIMILARITY_THRESHOLD
+    ) -> bool:
         """
-        Check if the chosen drug names are a valid match to the reference drug names based on their similarity to the ground truth drug names.
+        Check if the chosen drug names are a valid match to the reference drug names based on their
+        similarity to the ground truth drug names.
 
         The order of the drug names does not matter.
 
@@ -113,10 +120,17 @@ class StringMatcher:
             threshold (float): The minimum similarity score for a pair to be considered valid.
 
         Returns:
-            bool: True if there is a valid pair, False otherwise. Valid means that the the chosen drug names have a higher F1 score against the ground truth than
-            the reference drug names do against the ground truth.
+            bool: True if there is a valid pair, False otherwise. Valid means that the chosen drug names
+            have a higher F1 score against the ground truth than the reference drug names do against
+            the ground truth.
         """
 
-        chosen_f1_score = self.fuzz_f1_score(chosen, ground_truth, prediction_threshold=threshold, reference_threshold=threshold, prediction_top_n=1)
-        reference_f1_score = self.fuzz_f1_score(reference, ground_truth, prediction_threshold=threshold, reference_threshold=threshold, prediction_top_n=1)
+        chosen_f1_score = self.fuzz_f1_score(
+            chosen, ground_truth, prediction_threshold=threshold,
+            reference_threshold=threshold, prediction_top_n=1
+        )
+        reference_f1_score = self.fuzz_f1_score(
+            reference, ground_truth, prediction_threshold=threshold,
+            reference_threshold=threshold, prediction_top_n=1
+        )
         return chosen_f1_score > reference_f1_score
