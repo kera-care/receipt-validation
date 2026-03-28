@@ -28,6 +28,21 @@ def normalize_drug_name(name: str) -> str:
     return name
 
 
+def normalize_drug_names(names: list[str]) -> list[str]:
+    """ Normalizes a list of drug names.
+
+    Args:
+        names (list[str]): The list of drug names to normalize.
+    
+    Returns:
+        list[str]: The list of normalized drug names.
+    """
+    names = [normalize_drug_name(name) for name in names]
+    names = list(set(names))
+    names.sort()
+    return names
+
+
 def load_tasks(tasks_path: str, images_root_dir: str, prompt: str, validate_image_paths: bool = True, skip_missing_images: bool = True):
     logger.info("Loading tasks", tasks_path=tasks_path, images_root_dir=images_root_dir, validate_image_paths=validate_image_paths, skip_missing_images=skip_missing_images)
     with open(tasks_path, "r") as f:
@@ -50,9 +65,7 @@ def load_tasks(tasks_path: str, images_root_dir: str, prompt: str, validate_imag
             num_skipped_tasks += 1
             continue
         labels = current_task["verified_drug_names"]
-        normalized_labels = [normalize_drug_name(label) for label in labels]
-        normalized_labels = list(set(normalized_labels))
-        normalized_labels.sort()
+        normalized_labels = normalize_drug_names(labels)
 
         image_paths = image_paths[:MAX_IMAGES_PER_MESSAGE]
 
