@@ -1,11 +1,14 @@
 # GLM-OCR Fine-Tune
 
-Fine-tune [zai-org/GLM-OCR](https://huggingface.co/zai-org/GLM-OCR) for drug name extraction from prescription images. Includes training (full fine-tune + LoRA), distributed inference, and a multi-level evaluation pipeline with root-based matching and exclusion detection.
+Fine-tune [zai-org/GLM-OCR](https://huggingface.co/zai-org/GLM-OCR) for **multi-task prescription document understanding**: drug name extraction and prescription validation (is_prescription, has_stamp, has_signature, date). Includes a full data preparation pipeline from raw GCS annotations, training (full fine-tune + LoRA), distributed inference, and a multi-level evaluation pipeline with root-based matching and exclusion detection.
 
 ## Project Structure
 
 ```
 ├── pyproject.toml                  # Poetry build config & dependencies
+├── configs/
+│   ├── accelerate_single_gpu.yaml  # Single GPU (bf16)
+│   └── accelerate_multi_gpu.yaml   # Multi-GPU DDP (NCCL, A100)
 ├── resources/
 │   ├── drug_roots.json             # Drug name → roots & variants mapping (1,463 entries)
 │   └── drugs_exclusion.csv         # Drug exclusion flags (drug_name, is_exclusion)
@@ -14,13 +17,22 @@ Fine-tune [zai-org/GLM-OCR](https://huggingface.co/zai-org/GLM-OCR) for drug nam
 │   ├── dev_tasks.json
 │   └── test_tasks.json
 ├── scripts/
-│   ├── run_training.sh             # Launch training (full ft or LoRA)
-│   ├── run_inference.sh            # Launch distributed inference
-│   ├── run_evaluate.sh             # Run evaluation pipeline
-│   └── run_extract_drug_names.sh   # Extract unique drug names from task files
+│   ├── configure_validation_training.sh  # Full Azure VM data-prep + training orchestration
+│   ├── download_production_images.py     # Fetch annotations from GCS + download images
+│   ├── prepare_kera_prescription.py      # Convert raw Kera JSONL → train/val/test splits
+│   ├── prepare_cord.py                   # Prepare CORD dataset
+│   ├── prepare_coco.py                   # Prepare COCO dataset (negative samples)
+│   ├── prepare_doclaynet.py              # Prepare DocLayNet dataset (negative samples)
+│   ├── merge_datasets.py                 # Merge all datasets into unified train/val JSON
+│   ├── run_training.sh                   # Launch training (full ft or LoRA)
+│   ├── run_training_validation.sh        # Launch prescription-validation training
+│   ├── run_inference.sh                  # Launch distributed inference
+│   ├── run_evaluate.sh                   # Run evaluation pipeline
+│   └── run_extract_drug_names.sh         # Extract unique drug names from task files
 └── src/glm_ocr_finetune/
     ├── config.py                   # Model, LoRA, Data, Training configs
     ├── train.py                    # Training script (HF Trainer + Accelerate)
+    ├── train_validation.py         # Prescription-validation training script
     ├── inference.py                # Distributed inference (torch.distributed)
     ├── evaluate.py                 # Evaluation: exact, root-match, exclusion
     ├── extract_drug_names.py       # Drug name extraction utility
@@ -43,7 +55,9 @@ Fine-tune [zai-org/GLM-OCR](https://huggingface.co/zai-org/GLM-OCR) for drug nam
 poetry lock && poetry install
 ```
 
-## Data Format
+## Data Formats
+
+### Drug extraction task (original)
 
 Each task file is a JSON array of objects:
 
@@ -58,6 +72,138 @@ Each task file is a JSON array of objects:
 ```
 
 Images are resolved relative to the `IMAGES_ROOT_DIR` directory.
+
+### Prescription validation task (multi-task pipeline)
+
+Raw Kera production annotations (one JSON per line in JSONL):
+
+```json
+{
+  "image_id":     "<uuid>",
+  "image_path":   "gs://<bucket>/coverage_images/...",
+  "annotated_at": "2026-03-30T14:24:07Z",
+  "fields": {
+    "is_prescription": true,
+    "drug_names":      ["DRUG A", "DRUG B"],
+    "has_stamp":       true,
+    "has_signature":   true,
+    "date":            "2025-09-20"
+  }
+}
+```
+
+After `prepare_kera_prescription.py`, each record becomes:
+
+```json
+{
+  "transaction_id":  "<uuid>",
+  "image_urls":      ["coverage_images/..."],
+  "annotated_at":    "2026-03-30T14:24:07Z",
+  "drug_names":      ["DRUG A", "DRUG B"],
+  "is_prescription": true,
+  "has_stamp":       true,
+  "has_signature":   true,
+  "date":            "2025-09-20"
+}
+```
+
+After `merge_datasets.py`, each record additionally receives:
+
+```json
+{
+  "image_paths": ["/absolute/path/to/coverage_images/..."],
+  "source":      "kera_prescription"
+}
+```
+
+---
+
+## Multi-Task Data Preparation Pipeline
+
+The full pipeline is orchestrated by `scripts/configure_validation_training.sh` and runs on an Azure VM with a mounted data drive. CORD, COCO, and DocLayNet datasets act as **negative samples** (non-prescription documents) for the prescription validation task.
+
+```
+GCS bucket (annotations + images)
+        │
+        ▼
+download_production_images.py    ← fetches annotation JSONL + images from GCS
+        │
+        ▼
+prepare_kera_prescription.py     ← converts JSONL  → train.jsonl / validation.jsonl / test.jsonl
+prepare_cord.py                  ─┐
+prepare_coco.py                   ├─ prepare auxiliary negative-sample datasets
+prepare_doclaynet.py             ─┘
+        │
+        ▼
+merge_datasets.py                ← merges all sources → train_tasks.json + val_tasks.json
+        │
+        ▼
+run_training_validation.sh       ← launches multi-task training
+```
+
+### Running the pipeline
+
+```bash
+# Set required environment variables
+export IMAGES_BUCKET_NAME="kera-production.appspot.com"
+export GCP_SA_KEY_PATH=/path/to/secrets.json
+
+# Optional overrides (sensible defaults exist)
+export ANNOTATIONS_GCS_PREFIX="annotated_image_data/prescriptions/v_20260402_013946/"
+export DATA_DIRECTORY=/mnt/datadrive/vision-llm-finetune-data
+
+bash scripts/configure_validation_training.sh
+```
+
+### Environment variables
+
+| Variable | Required | Default | Description |
+|---|---|---|---|
+| `IMAGES_BUCKET_NAME` | **yes** | — | GCS bucket containing prescription images |
+| `GCP_SA_KEY_PATH` | **yes** | — | Path to GCP service account JSON key |
+| `ANNOTATIONS_GCS_PREFIX` | no | `annotated_image_data/prescriptions/v_20260402_013946/` | GCS prefix for annotation JSONL files |
+| `DATA_DIRECTORY` | no | `/mnt/datadrive/vision-llm-finetune-data` | Root data directory on the VM |
+
+### `download_production_images.py`
+
+Fetches all `.jsonl` annotation files from the GCS prefix, then downloads the referenced prescription images.
+
+```bash
+IMAGES_BUCKET_NAME=kera-production.appspot.com \
+  poetry run python scripts/download_production_images.py \
+    --annotations_gcs_prefix "annotated_image_data/prescriptions/v_20260402_013946/" \
+    --annotations_local_dir /data/annotations/prescriptions \
+    --secrets_path /path/to/secrets.json \
+    --images_output_dir /data/images/prod-prescriptions
+```
+
+### `prepare_kera_prescription.py`
+
+Converts raw annotation JSONL into clean train/validation/test splits with 90/10 train–val split.
+
+```bash
+poetry run python scripts/prepare_kera_prescription.py \
+  --train_jsonl /data/annotations/prescriptions/train.jsonl \
+  --output_dir  /data/prescription_dataset
+```
+
+CLI flags: `--train_jsonl` (required), `--test_jsonl` (optional), `--output_dir` (default: `prescription_dataset`), `--val_ratio` (default: 0.1), `--seed` (default: 42).
+
+### `merge_datasets.py`
+
+Merges CORD, COCO, DocLayNet, and Kera prescription datasets. Resolves relative `image_urls` to absolute `image_paths`.
+
+```bash
+poetry run python scripts/merge_datasets.py \
+  --cord_dir         /data/cord \
+  --coco_dir         /data/coco \
+  --doclaynet_dir    /data/doclaynet \
+  --kera_prescription_splits_dir /data/prescription_dataset \
+  --kera_prescription_dir        /data/images/prod-prescriptions \
+  --output_dir /data/merged_dataset
+```
+
+Output: `{output_dir}/train_tasks.json`, `{output_dir}/val_tasks.json`.
 
 ## Training
 

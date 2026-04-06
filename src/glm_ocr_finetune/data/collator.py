@@ -1,26 +1,68 @@
 
 from dataclasses import dataclass
-import json
 from PIL import Image
-from typing import Callable, List, Dict, Any
+from typing import Callable, Any
 import structlog
 import torch
 import kornia.augmentation as K
 from torchvision.transforms.functional import to_tensor, to_pil_image
-from PIL import Image
+
 
 logger = structlog.get_logger(__name__)
 
 
-def get_ocr_friendly_augmentation():
+def get_ocr_friendly_augmentation(
+        degrees: float = 6.0,
+        perspective_distortion: float = 0.15,
+        gaussian_blur_kernel: tuple = (3,3),
+        gaussian_blur_sigma: tuple = (0.1, 1.2),
+        sharpness_factor: float = 1.5,
+        color_jitter_params: dict | None = None,
+        random_erasing_params: dict | None = None
+        
+):
+    """Get a kornia augmentation pipeline with light, text-preserving augmentations suitable for OCR tasks.
+
+    Args:
+        degrees: Maximum rotation angle in degrees for RandomRotation.
+        perspective_distortion: Maximum distortion for RandomPerspective.
+        gaussian_blur_kernel: Kernel size for RandomGaussianBlur.
+        gaussian_blur_sigma: Sigma range for RandomGaussianBlur.
+        sharpness_factor: Sharpness factor for RandomSharpness (1.0 means no change, >1.0 increases sharpness).
+        color_jitter_params: Dictionary of parameters for ColorJitter (e.g. {"brightness": 0.2, "contrast": 0.2, "saturation": 0.05, "hue": 0.02}).
+        random_erasing_params: Dictionary of parameters for RandomErasing (e.g. {"scale": (0.01, 0.03), "ratio": (0.2, 3.0), "value": 0.0}).
+    """
+    if not isinstance(degrees, (int, float)):
+        raise ValueError("degrees should be a single number (float or int)")
+    if not isinstance(perspective_distortion, (int, float)):
+        raise ValueError("perspective_distortion should be a single number (float or int)")
+    if not (isinstance(gaussian_blur_kernel, tuple) and len(gaussian_blur_kernel) == 2 and all(isinstance(k, int) for k in gaussian_blur_kernel)):
+        raise ValueError("gaussian_blur_kernel should be a tuple of two integers")
+    if not (isinstance(gaussian_blur_sigma, tuple) and len(gaussian_blur_sigma) == 2 and all(isinstance(s, (int, float)) for s in gaussian_blur_sigma)):
+        raise ValueError("gaussian_blur_sigma should be a tuple of two floats")
+    if not isinstance(sharpness_factor, (int, float)):
+        raise ValueError("sharpness_factor should be a single number (float or int)")
+    
+    if color_jitter_params is None:
+        color_jitter_params = {"brightness": 0.2, "contrast": 0.2, "saturation": 0.05, "hue": 0.02}
+    
+    if random_erasing_params is None:
+        random_erasing_params = {"scale": (0.01, 0.03), "ratio": (0.2, 3.0), "value": 0.0}
+
+    if not isinstance(color_jitter_params, dict):
+        raise ValueError("color_jitter_params should be a dictionary")
+    if not isinstance(random_erasing_params, dict):
+        raise ValueError("random_erasing_params should be a dictionary")
+    
+
     # Light, text-preserving augs for OCR
     return torch.nn.Sequential(
-        K.RandomRotation(degrees=6.0, p=0.3),
-        K.RandomPerspective(0.15, p=0.3),
-        K.RandomGaussianBlur((3,3), (0.1, 1.2), p=0.35),
-        K.RandomSharpness(sharpness=1.5, p=0.3),
-        K.ColorJitter(brightness=0.2, contrast=0.2, saturation=0.05, hue=0.02, p=0.5),
-        K.RandomErasing(p=0.2, scale=(0.01, 0.03), ratio=(0.2, 3.0), value=0.0),
+        K.RandomRotation(degrees=degrees, p=0.3),
+        K.RandomPerspective(perspective_distortion, p=0.3),
+        K.RandomGaussianBlur(gaussian_blur_kernel, gaussian_blur_sigma, p=0.35),
+        K.RandomSharpness(sharpness=sharpness_factor, p=0.3),
+        K.ColorJitter(**color_jitter_params, p=0.5),
+        K.RandomErasing(p=0.2, **random_erasing_params),
     )
 
 def apply_augmentation(k_aug: torch.nn.Sequential, img: Image.Image, device=torch.device("cpu")):
@@ -32,17 +74,16 @@ def apply_augmentation(k_aug: torch.nn.Sequential, img: Image.Image, device=torc
 
 @dataclass
 class DrugNameDataCollator:
-    processor: any
+    processor: Any
     max_length: int = 4096
     assistant_only: bool = True
     assistance_prefix: str = "<|assistant|>"
     thinking_prefix: str = "\n<think></think>\n"
-    image_tokens = []
     augmentation: Callable[[Image.Image], Image.Image] | None = None
 
 
     @property
-    def image_tokens(self) -> List[int]:
+    def image_tokens(self) -> list[int]:
         return [
             self.processor.image_token,
             "<|begin_of_image|>",
@@ -51,7 +92,7 @@ class DrugNameDataCollator:
 
 
 
-    def extract_image_urls(self, messages_list: List[List[Dict[str, Any]]]) -> List[str | None]:
+    def extract_image_urls(self, messages_list: list[list[dict[str, Any]]]) -> list[str | None]:
         image_urls = []
         
         for messages in messages_list:
@@ -69,7 +110,7 @@ class DrugNameDataCollator:
         return image_urls
 
 
-    def prepare_inputs(self, batch: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    def prepare_inputs(self, batch: list[dict[str, Any]]) -> list[dict[str, Any]]:
         messages_list = [batch_item["messages"] for batch_item in batch]
         image_urls = self.extract_image_urls(messages_list)
         non_null_image_indices = [i for i, url in enumerate(image_urls) if url is not None]
@@ -96,7 +137,7 @@ class DrugNameDataCollator:
         
 
 
-    def __call__(self, batch: List[Dict[str, Any]]) -> Dict[str, torch.Tensor]:
+    def __call__(self, batch: list[dict[str, Any]]) -> dict[str, torch.Tensor]:
         
         messages_list, images = self.prepare_inputs(batch)
 
@@ -134,7 +175,7 @@ class DrugNameDataCollator:
 
         return inputs
     
-    def get_assistant_labels(self, input_ids: torch.Tensor, attention_mask: torch.Tensor, image_token_ids: List[int]) -> torch.Tensor:
+    def get_assistant_labels(self, input_ids: torch.Tensor, attention_mask: torch.Tensor, image_token_ids: list[int]) -> torch.Tensor:
         labels = input_ids.clone()
         labels[attention_mask == 0] = -100
 
@@ -155,6 +196,11 @@ class DrugNameDataCollator:
             labels[batch_idx, :seq_idx + prefix_length] = -100
 
         return labels
+    
+
+class PrescriptionValidationCollator(DrugNameDataCollator):
+    pass # For now, same as DrugNameDataCollator, but can be customized later if needed (e.g. different label handling)
+
 
 if __name__ == "__main__":
 
@@ -201,7 +247,8 @@ if __name__ == "__main__":
     batch = [{"messages": messages}]
     inputs = collator(batch)
     for key in inputs:
-        logger.info(f"{key}: {inputs[key].shape}, dtype={inputs[key].dtype}")
+        logger.info("tensor_shape", key=key, shape=str(inputs[key].shape), dtype=str(inputs[key].dtype))
+
     input_ids = inputs["input_ids"]
     input_ids_decoded = processor.batch_decode(input_ids, skip_special_tokens=False)
     # print("Decoded Input:", input_ids_decoded)
