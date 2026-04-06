@@ -9,7 +9,9 @@ from tqdm import tqdm
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import threading
 from typing import List, Dict, Tuple
+import structlog
 
+logger = structlog.get_logger(__name__)
 
 def is_valid_image_file(file_path: str) -> bool:
     
@@ -18,7 +20,7 @@ def is_valid_image_file(file_path: str) -> bool:
         image.verify()  # Verify that it is, in fact an image
         return True
     except (IOError, SyntaxError) as e:
-        print(f"Invalid image file {file_path}: {e}")
+        logger.error("Invalid image file", file_path=file_path, error=str(e))
         return False
 
 
@@ -57,7 +59,7 @@ def _download_single_image(client: storage.Client, bucket_name: str, output_dir:
             if is_valid_image_file(output_path):
                 return True, image_url, "Already exists"
             # Remove corrupted file
-            print(f"Removing corrupted file: {output_path}")
+            logger.warning("Removing corrupted file", file_path=output_path)
             os.remove(output_path)
         
         # Download the image
@@ -142,7 +144,7 @@ def download_tasks_images(client: storage.Client, bucket_name: str, output_dir: 
     Returns:
         Dict with download statistics
     """
-    print(f"Downloading images for {len(tasks)} tasks using {max_workers} workers...")
+    logger.info("Starting image download for tasks", total_tasks=len(tasks), max_workers=max_workers, images_per_task_workers=images_per_task_workers)
     
     total_successful = 0
     total_images = 0
@@ -188,29 +190,28 @@ def download_tasks_images(client: storage.Client, bucket_name: str, output_dir: 
                     })
                     
                 except Exception as e:
-                    print(f"Error processing task {task_id}: {str(e)}")
+                    logger.error("Error processing task", task_id=task_id, error=str(e))
                     with progress_lock:
                         total_failed += len(task.get(image_urls_key, []))
                 
                 pbar.update(1)
     
-    # Print summary
-    print(f"\n{'='*80}")
-    print("DOWNLOAD SUMMARY")
-    print(f"{'='*80}")
-    print(f"Total images: {total_images}")
-    print(f"Successfully downloaded: {total_successful}")
-    print(f"Failed downloads: {total_failed}")
-    print(f"Success rate: {100 * total_successful / max(1, total_images):.1f}%")
+    logger.info(f"\n{'='*80}")
+    logger.info("DOWNLOAD SUMMARY")
+    logger.info(f"{'='*80}")
+    logger.info(f"Total images: {total_images}")
+    logger.info(f"Successfully downloaded: {total_successful}")
+    logger.info(f"Failed downloads: {total_failed}")
+    logger.info(f"Success rate: {100 * total_successful / max(1, total_images):.1f}%")
     
     if all_failed_urls:
-        print(f"\nFailed URLs (showing first 10):")
+        logger.warning("Failed URLs (showing first 10)", failed_urls=all_failed_urls[:10])
         for url in all_failed_urls[:10]:
-            print(f"  - {url}")
+            logger.warning("  - {url}", url=url)
         if len(all_failed_urls) > 10:
-            print(f"  ... and {len(all_failed_urls) - 10} more")
+            logger.warning("  ... and {remaining} more", remaining=len(all_failed_urls) - 10)
     
-    print(f"{'='*80}\n")
+    logger.info(f"{'='*80}\n")
     
     return {
         'total_images': total_images,
@@ -260,7 +261,7 @@ def load_jsonl_tasks(*jsonl_paths: str) -> List[Dict]:
         if not path:
             continue
         if not os.path.exists(path):
-            print(f"Warning: JSONL file not found: {path}, skipping...")
+            logger.warning("JSONL file not found, skipping...", path=path)
             continue
         count = 0
         with open(path, encoding="utf-8") as f:
@@ -271,13 +272,13 @@ def load_jsonl_tasks(*jsonl_paths: str) -> List[Dict]:
                 try:
                     record = json.loads(raw)
                 except json.JSONDecodeError as exc:
-                    print(f"Warning: JSON parse error in {path} line {line_no}: {exc}, skipping...")
+                    logger.warning("JSON parse error, skipping...", path=path, line=line_no, error=str(exc))
                     continue
                 gcs_url: str = record.get("image_path", "")
                 record["image_urls"] = [gcs_url] if gcs_url else []
                 output.append(record)
                 count += 1
-        print(f"Loaded {count} tasks from {path}")
+        logger.info("Loaded {count} tasks from {path}", count=count, path=path)
     return output
 
 

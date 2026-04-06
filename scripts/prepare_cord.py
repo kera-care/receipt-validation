@@ -31,6 +31,10 @@ from typing import Dict, List
 import argparse
 from tqdm import tqdm
 from datasets import load_dataset
+import structlog
+
+
+logger = structlog.get_logger(__name__)
 
 
 def download_and_prepare_cord(
@@ -50,9 +54,9 @@ def download_and_prepare_cord(
         include_v1: Whether to include CORD v1
         include_v2: Whether to include CORD v2
     """
-    print("=" * 80)
-    print("PREPARING CORD NEGATIVES FOR MULTI-TASK LEARNING")
-    print("=" * 80)
+    logger.info("=" * 80)
+    logger.info("PREPARING CORD NEGATIVES FOR MULTI-TASK LEARNING")
+    logger.info("=" * 80)
     
     if not include_v1 and not include_v2:
         raise ValueError("At least one of CORD v1 or v2 must be included")
@@ -64,34 +68,34 @@ def download_and_prepare_cord(
     tasks_dir = output_dir / "tasks"
     tasks_dir.mkdir(parents=True, exist_ok=True)
     
-    print(f"\n📁 Output directory: {output_dir}")
-    print(f"📁 Images directory: {images_dir}")
-    print(f"📁 Tasks directory: {tasks_dir}")
+    logger.info("📁 Output directory: {output_dir}", output_dir=output_dir)
+    logger.info("📁 Images directory: {images_dir}", images_dir=images_dir)
+    logger.info("📁 Tasks directory: {tasks_dir}", tasks_dir=tasks_dir)
     
     all_train_samples = []
     all_val_samples = []
     
     # Process CORD v1
     if include_v1:
-        print(f"\n{'='*80}")
-        print("STEP 1: DOWNLOADING CORD V1")
-        print(f"{'='*80}")
+        logger.info("\n{sep}", sep="="*80)
+        logger.info("STEP 1: DOWNLOADING CORD V1")
+        logger.info("{sep}", sep="="*80)
         
         v1_dataset = load_dataset("naver-clova-ix/cord-v1")
         v1_train = v1_dataset["train"]
         v1_validation = v1_dataset["validation"]
         v1_test = v1_dataset["test"]
         
-        print(f"✓ Loaded CORD v1 - Train: {len(v1_train)}, Validation: {len(v1_validation)}, Test: {len(v1_test)}")
+        logger.info("✓ Loaded CORD v1 - Train: {train_count}, Validation: {val_count}, Test: {test_count}", train_count=len(v1_train), val_count=len(v1_validation), test_count=len(v1_test))
         
         # Process v1 train split
-        print(f"\n{'='*80}")
-        print("STEP 2: PROCESSING CORD V1 TRAIN SPLIT")
-        print(f"{'='*80}")
+        logger.info("\n{sep}", sep="="*80)
+        logger.info("STEP 2: PROCESSING CORD V1 TRAIN SPLIT")
+        logger.info("{sep}", sep="="*80)
         
         train_samples_to_use = int(len(v1_train) * sample_ratio)
-        print(f"\n📊 Total CORD v1 train images: {len(v1_train):,}")
-        print(f"📊 Sampling {sample_ratio*100}% = {train_samples_to_use:,} samples")
+        logger.info("📊 Total CORD v1 train images: {total}", total=len(v1_train))
+        logger.info("📊 Sampling {ratio}% = {samples} samples", ratio=sample_ratio*100, samples=train_samples_to_use)
         
         random.seed(seed)
         train_indices = random.sample(range(len(v1_train)), train_samples_to_use)
@@ -119,13 +123,13 @@ def download_and_prepare_cord(
             all_train_samples.append(task_entry)
         
         # Process v1 validation split
-        print(f"\n{'='*80}")
-        print("STEP 3: PROCESSING CORD V1 VALIDATION SPLIT")
-        print(f"{'='*80}")
+        logger.info("\n{sep}", sep="="*80)
+        logger.info("STEP 3: PROCESSING CORD V1 VALIDATION SPLIT")
+        logger.info("{sep}", sep="="*80)
         
         val_samples_to_use = int(len(v1_validation) * sample_ratio)
-        print(f"\n📊 Total CORD v1 validation images: {len(v1_validation):,}")
-        print(f"📊 Sampling {sample_ratio*100}% = {val_samples_to_use:,} samples")
+        logger.info("📊 Total CORD v1 validation images: {total}", total=len(v1_validation))
+        logger.info("📊 Sampling {ratio}% = {samples} samples", ratio=sample_ratio*100, samples=val_samples_to_use)
         
         random.seed(seed + 1000)
         val_indices = random.sample(range(len(v1_validation)), val_samples_to_use)
@@ -150,13 +154,13 @@ def download_and_prepare_cord(
             all_val_samples.append(task_entry)
         
         # Process v1 test split (also add to validation)
-        print(f"\n{'='*80}")
-        print("STEP 4: PROCESSING CORD V1 TEST SPLIT")
-        print(f"{'='*80}")
+        logger.info("\n{sep}", sep="="*80)
+        logger.info("STEP 4: PROCESSING CORD V1 TEST SPLIT")
+        logger.info("{sep}", sep="="*80)
         
         test_samples_to_use = int(len(v1_test) * sample_ratio)
-        print(f"\n📊 Total CORD v1 test images: {len(v1_test):,}")
-        print(f"📊 Sampling {sample_ratio*100}% = {test_samples_to_use:,} samples")
+        logger.info("📊 Total CORD v1 test images: {total}", total=len(v1_test))
+        logger.info("📊 Sampling {ratio}% = {samples} samples", ratio=sample_ratio*100, samples=test_samples_to_use)
         
         random.seed(seed + 2000)
         test_indices = random.sample(range(len(v1_test)), test_samples_to_use)
@@ -182,26 +186,26 @@ def download_and_prepare_cord(
     
     # Process CORD v2
     if include_v2:
-        print(f"\n{'='*80}")
-        print(f"STEP {5 if include_v1 else 1}: DOWNLOADING CORD V2")
-        print(f"{'='*80}")
+        logger.info("\n{sep}", sep="="*80)
+        logger.info("STEP {step}: DOWNLOADING CORD V2", step=5 if include_v1 else 1)
+        logger.info("{sep}", sep="="*80)
         
         v2_dataset = load_dataset("naver-clova-ix/cord-v2")
         v2_train = v2_dataset["train"]
         v2_validation = v2_dataset["validation"]
         v2_test = v2_dataset["test"]
         
-        print(f"✓ Loaded CORD v2 - Train: {len(v2_train)}, Validation: {len(v2_validation)}, Test: {len(v2_test)}")
+        logger.info("✓ Loaded CORD v2 - Train: {train_count}, Validation: {val_count}, Test: {test_count}", train_count=len(v2_train), val_count=len(v2_validation), test_count=len(v2_test))
         
         # Process v2 train split
         step_num = 6 if include_v1 else 2
-        print(f"\n{'='*80}")
-        print(f"STEP {step_num}: PROCESSING CORD V2 TRAIN SPLIT")
-        print(f"{'='*80}")
+        logger.info("\n{sep}", sep="="*80)
+        logger.info("STEP {step}: PROCESSING CORD V2 TRAIN SPLIT", step=step_num)
+        logger.info("{sep}", sep="="*80)
         
         train_samples_to_use = int(len(v2_train) * sample_ratio)
-        print(f"\n📊 Total CORD v2 train images: {len(v2_train):,}")
-        print(f"📊 Sampling {sample_ratio*100}% = {train_samples_to_use:,} samples")
+        logger.info("📊 Total CORD v2 train images: {total}", total=len(v2_train))
+        logger.info("📊 Sampling {ratio}% = {samples} samples", ratio=sample_ratio*100, samples=train_samples_to_use)
         
         random.seed(seed + 2000)
         train_indices = random.sample(range(len(v2_train)), train_samples_to_use)
@@ -227,13 +231,13 @@ def download_and_prepare_cord(
         
         # Process v2 validation split
         step_num = 7 if include_v1 else 3
-        print(f"\n{'='*80}")
-        print(f"STEP {step_num}: PROCESSING CORD V2 VALIDATION SPLIT")
-        print(f"{'='*80}")
+        logger.info("\n{sep}", sep="="*80)
+        logger.info("STEP {step}: PROCESSING CORD V2 VALIDATION SPLIT", step=step_num)
+        logger.info("{sep}", sep="="*80)
         
         val_samples_to_use = int(len(v2_validation) * sample_ratio)
-        print(f"\n📊 Total CORD v2 validation images: {len(v2_validation):,}")
-        print(f"📊 Sampling {sample_ratio*100}% = {val_samples_to_use:,} samples")
+        logger.info("📊 Total CORD v2 validation images: {total}", total=len(v2_validation))
+        logger.info("📊 Sampling {ratio}% = {samples} samples", ratio=sample_ratio*100, samples=val_samples_to_use)
         
         random.seed(seed + 3000)
         val_indices = random.sample(range(len(v2_validation)), val_samples_to_use)
@@ -259,13 +263,13 @@ def download_and_prepare_cord(
         
         # Process v2 test split (also add to validation)
         step_num = 8 if include_v1 else 4
-        print(f"\n{'='*80}")
-        print(f"STEP {step_num}: PROCESSING CORD V2 TEST SPLIT")
-        print(f"{'='*80}")
+        logger.info("\n{sep}", sep="="*80)
+        logger.info("STEP {step}: PROCESSING CORD V2 TEST SPLIT", step=step_num)
+        logger.info("{sep}", sep="="*80)
         
         test_samples_to_use = int(len(v2_test) * sample_ratio)
-        print(f"\n📊 Total CORD v2 test images: {len(v2_test):,}")
-        print(f"📊 Sampling {sample_ratio*100}% = {test_samples_to_use:,} samples")
+        logger.info("📊 Total CORD v2 test images: {total}", total=len(v2_test))
+        logger.info("📊 Sampling {ratio}% = {samples} samples", ratio=sample_ratio*100, samples=test_samples_to_use)
         
         random.seed(seed + 3000)
         test_indices = random.sample(range(len(v2_test)), test_samples_to_use)
@@ -290,9 +294,9 @@ def download_and_prepare_cord(
             all_val_samples.append(task_entry)
     
     # Save task files
-    print(f"\n{'='*80}")
-    print(f"STEP {9 if include_v1 and include_v2 else (5 if include_v1 or include_v2 else 1)}: SAVING TASK FILES")
-    print(f"{'='*80}")
+    logger.info("\n{sep}", sep="="*80)
+    logger.info("STEP {step}: SAVING TASK FILES", step=9 if include_v1 and include_v2 else (5 if include_v1 or include_v2 else 1))
+    logger.info("{sep}", sep="="*80)
     
     train_task_file = tasks_dir / "train_tasks.json"
     val_task_file = tasks_dir / "val_tasks.json"
@@ -303,64 +307,64 @@ def download_and_prepare_cord(
     with open(val_task_file, 'w') as f:
         json.dump(all_val_samples, f, indent=2)
     
-    print(f"\n✅ Saved {len(all_train_samples):,} train samples to {train_task_file}")
-    print(f"✅ Saved {len(all_val_samples):,} validation samples to {val_task_file}")
+    logger.info("✅ Saved {train_count:,} train samples to {train_file}", train_count=len(all_train_samples), train_file=train_task_file)
+    logger.info("✅ Saved {val_count:,} validation samples to {val_file}", val_count=len(all_val_samples), val_file=val_task_file)
     
     # Show dataset distribution
-    print(f"\n📊 Train dataset distribution:")
+    logger.info("\n📊 Train dataset distribution:")
     train_datasets = {}
     for entry in all_train_samples:
         ds = entry['dataset']
         train_datasets[ds] = train_datasets.get(ds, 0) + 1
     
     for ds, count in sorted(train_datasets.items()):
-        print(f"  - {ds}: {count:,} ({count/len(all_train_samples)*100:.1f}%)")
+        logger.info("  - {dataset}: {count:,} ({percentage:.1f}%)", dataset=ds, count=count, percentage=count/len(all_train_samples)*100)
     
-    print(f"\n📊 Validation dataset distribution:")
+    logger.info("\n📊 Validation dataset distribution:")
     val_datasets = {}
     for entry in all_val_samples:
         ds = entry['dataset']
         val_datasets[ds] = val_datasets.get(ds, 0) + 1
     
     for ds, count in sorted(val_datasets.items()):
-        print(f"  - {ds}: {count:,} ({count/len(all_val_samples)*100:.1f}%)")
+        logger.info("  - {dataset}: {count:,} ({percentage:.1f}%)", dataset=ds, count=count, percentage=count/len(all_val_samples)*100)
     
     # Summary
-    print(f"\n{'='*80}")
-    print("SUMMARY")
-    print(f"{'='*80}")
-    print(f"✅ Total images saved: {len(list(images_dir.glob('*.png'))):,}")
-    print(f"✅ Train task file: {train_task_file} ({len(all_train_samples):,} samples)")
-    print(f"✅ Validation task file: {val_task_file} ({len(all_val_samples):,} samples)")
-    print(f"\n✅ Done! Use these files as negative samples in your multi-task config.")
-    print(f"\nExample usage in config:")
-    print(f"")
-    print(f"  # As negatives for drug extraction")
-    print(f"  negative_samples:")
-    print(f"    - train_tasks_path: {train_task_file}")
-    print(f"      val_tasks_path: {val_task_file}")
-    print(f"      images_root_dir: {images_dir}")
-    print(f"      images_url_key: image_urls")
-    print(f"      negative_extractor: cord_to_drug_extraction")
-    print(f"      ratio: 1.0")
-    print(f"")
-    print(f"  # As negatives for prescription validation")
-    print(f"  negative_samples:")
-    print(f"    - train_tasks_path: {train_task_file}")
-    print(f"      val_tasks_path: {val_task_file}")
-    print(f"      images_root_dir: {images_dir}")
-    print(f"      images_url_key: image_urls")
-    print(f"      negative_extractor: cord_to_prescription_validation")
-    print(f"      ratio: 1.0")
-    print(f"")
-    print(f"  # As hard negatives for receipt validation")
-    print(f"  negative_samples:")
-    print(f"    - train_tasks_path: {train_task_file}")
-    print(f"      val_tasks_path: {val_task_file}")
-    print(f"      images_root_dir: {images_dir}")
-    print(f"      images_url_key: image_urls")
-    print(f"      negative_extractor: cord_to_receipt_validation")
-    print(f"      ratio: 1.0")
+    logger.info("\n{sep}", sep="="*80)
+    logger.info("SUMMARY")
+    logger.info("{sep}", sep="="*80)
+    logger.info("✅ Total images saved: {total}", total=len(list(images_dir.glob('*.png'))))
+    logger.info("✅ Train task file: {train_file} ({train_count} samples)", train_file=train_task_file, train_count=len(all_train_samples))
+    logger.info("✅ Validation task file: {val_file} ({val_count} samples)", val_file=val_task_file, val_count=len(all_val_samples))
+    logger.info("\n✅ Done! Use these files as negative samples in your multi-task config.")
+    logger.info("\nExample usage in config:")
+    logger.info("")
+    logger.info("  # As negatives for drug extraction")
+    logger.info("  negative_samples:")
+    logger.info("    - train_tasks_path: {train_file}", train_file=train_task_file)
+    logger.info("      val_tasks_path: {val_file}", val_file=val_task_file)
+    logger.info("      images_root_dir: {images_dir}", images_dir=images_dir)
+    logger.info("      images_url_key: image_urls")
+    logger.info("      negative_extractor: cord_to_drug_extraction")
+    logger.info("      ratio: 1.0")
+    logger.info("")
+    logger.info("  # As negatives for prescription validation")
+    logger.info("  negative_samples:")
+    logger.info("    - train_tasks_path: {train_file}", train_file=train_task_file)
+    logger.info("      val_tasks_path: {val_file}", val_file=val_task_file)
+    logger.info("      images_root_dir: {images_dir}", images_dir=images_dir)
+    logger.info("      images_url_key: image_urls")
+    logger.info("      negative_extractor: cord_to_prescription_validation")
+    logger.info("      ratio: 1.0")
+    logger.info("")
+    logger.info("  # As hard negatives for receipt validation")
+    logger.info("  negative_samples:")
+    logger.info("    - train_tasks_path: {train_file}", train_file=train_task_file)
+    logger.info("      val_tasks_path: {val_file}", val_file=val_task_file)
+    logger.info("      images_root_dir: {images_dir}", images_dir=images_dir)
+    logger.info("      images_url_key: image_urls")
+    logger.info("      negative_extractor: cord_to_receipt_validation")
+    logger.info("      ratio: 1.0")
 
 
 def main():

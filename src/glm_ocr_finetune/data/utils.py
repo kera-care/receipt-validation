@@ -156,10 +156,6 @@ def load_prescription_validation_tasks(
         A Hugging Face ``Dataset`` with columns derived from the task dicts
         (e.g. ``messages``, ``labels``, ``transaction_id``, …).
     """
-
-    # Example 
-
-
     logger.info("Loading tasks", tasks_path=tasks_path, validate_image_paths=validate_image_paths, skip_missing_images=skip_missing_images, prompt=prompt)
     with open(tasks_path, "r") as f:
         tasks = json.load(f)
@@ -240,34 +236,25 @@ def load_prescription_validation_tasks(
 
 
 def load_prescription_validation_datasets(
-    train_tasks_path: str,
-    val_tasks_path: str,
+    tasks_path: str,
     validate_image_paths: bool = False,
     skip_missing_images: bool = True,
-) -> tuple[HFDataset, HFDataset]:
+) -> HFDataset:
     """Load train and validation datasets for prescription validation.
 
     Args:
-        train_tasks_path: Path to the JSON task file for training.
-        val_tasks_path: Path to the JSON task file for validation.
+        tasks_path: Path to the JSON task file.
         validate_image_paths: Whether to verify image files exist on disk.
         skip_missing_images: Whether to skip tasks with missing images.
     Returns:
         A tuple of (train_dataset, val_dataset) as Hugging Face Datasets.
     """
-    train_dataset = load_prescription_validation_tasks(
-        dataset_path=train_tasks_path,
+    tasks = load_prescription_validation_tasks(
+        tasks_path=tasks_path,
         validate_image_paths=validate_image_paths,
         skip_missing_images=skip_missing_images,
     )
-    val_dataset = load_prescription_validation_tasks(
-        dataset_path=val_tasks_path,
-        validate_image_paths=validate_image_paths,
-        skip_missing_images=skip_missing_images,
-    )
-    train_hf_dataset = HFDataset.from_list(train_dataset)
-    val_hf_dataset = HFDataset.from_list(val_dataset)
-    return train_hf_dataset, val_hf_dataset
+    return HFDataset.from_list(tasks)
 
 
 

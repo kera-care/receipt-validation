@@ -49,8 +49,6 @@ echo "Set HF_HOME to: $HF_HOME"
 
 
 echo "Downloading production prescription dataset..."
-poetry run python -m vision_llm_finetune.data.update_training_data
-
 
 prescription_images_dir="${data_directory}/images/prod-prescriptions"
 mkdir -p "$prescription_images_dir"
@@ -86,7 +84,7 @@ fi
 poetry run python scripts/download_production_images.py \
     --train_jsonl "$prescription_train_jsonl" \
     $test_jsonl_arg \
-    --secrets_path ../kera-vision-llm-finetune/secrets.json \
+    --secrets_path secrets.json \
     --images_output_dir "$prescription_images_dir"
 
 echo "Preparing Kera prescription dataset..."

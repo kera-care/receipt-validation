@@ -198,7 +198,7 @@ def load_kera_prescriptions(
     return _resolve_image_paths(
         tasks,
         images_dir=images_dir,
-        image_urls_key="prescription_image_urls",
+        image_urls_key="image_urls",
         source_label="kera_prescription",
     )
 

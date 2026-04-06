@@ -169,17 +169,16 @@ def main():
     # 2. Load datasets
     # ------------------------------------------------------------------ #
     train_dataset = load_prescription_validation_datasets(
-        dataset_path=args.train_dataset_path,
-        validate_image_paths=False,  # skip validation for faster loading; set True to verify paths
-        skip_missing_images=True,
+        tasks_path=args.train_dataset_path,
+        validate_image_paths=args.validate_image_paths,
+        skip_missing_images=args.validate_image_paths,  # only skip if we're validating paths
     )
-
     eval_dataset = None
     if args.eval_dataset_path and os.path.exists(args.eval_dataset_path):
         eval_dataset = load_prescription_validation_datasets(
-            dataset_path=args.eval_dataset_path,
-            validate_image_paths=False,  # skip validation for faster loading; set True to verify paths
-            skip_missing_images=True,
+            tasks_path=args.eval_dataset_path,
+            validate_image_paths=args.validate_image_paths,
+            skip_missing_images=args.validate_image_paths,  # only skip if we're validating paths
         )
 
     logger.info(

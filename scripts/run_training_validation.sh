@@ -24,7 +24,7 @@ IMAGES_ROOT_DIR="${IMAGES_ROOT_DIR:-/mnt/datadrive/vision-llm-finetune-data/imag
 TRAIN_DATASET_PATH="${TRAIN_DATASET_PATH:-../kera-vision-llm-finetune/multi-task-data/prescription_dataset/splits/train_tasks.json}"
 EVAL_DATASET_PATH="${EVAL_DATASET_PATH:-../kera-vision-llm-finetune/multi-task-data/prescription_dataset/splits/dev_tasks.json}"
 
-HF_CACHE_DIR="/mnt/datadrive/vision-llm-finetune-data/hf-cache"
+HF_CACHE_DIR="${HF_CACHE_DIR:-/mnt/datadrive/vision-llm-finetune-data/hf-cache}"
 mkdir -p "$HF_CACHE_DIR"
 export HF_HOME="$HF_CACHE_DIR"
 

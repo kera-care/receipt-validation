@@ -30,7 +30,9 @@ from typing import Dict, List
 import argparse
 from tqdm import tqdm
 from datasets import load_dataset
+import structlog
 
+logger = structlog.get_logger(__name__)
 
 def download_and_prepare_coco(
     output_dir: Path,
@@ -47,9 +49,9 @@ def download_and_prepare_coco(
         val_samples: Number of validation samples to extract (default: 1000)
         seed: Random seed for reproducibility
     """
-    print("=" * 80)
-    print("PREPARING COCO 2017 NEGATIVES FOR MULTI-TASK LEARNING")
-    print("=" * 80)
+    logger.info("=" * 80)
+    logger.info("PREPARING COCO 2017 NEGATIVES FOR MULTI-TASK LEARNING")
+    logger.info("=" * 80)
     
     # Create output directories
     images_dir = output_dir / "images"
@@ -58,38 +60,38 @@ def download_and_prepare_coco(
     tasks_dir = output_dir / "tasks"
     tasks_dir.mkdir(parents=True, exist_ok=True)
     
-    print(f"\n📁 Output directory: {output_dir}")
-    print(f"📁 Images directory: {images_dir}")
-    print(f"📁 Tasks directory: {tasks_dir}")
+    logger.info("Output directory: {output_dir}", output_dir=output_dir)
+    logger.info("Images directory: {images_dir}", images_dir=images_dir)
+    logger.info("Tasks directory: {tasks_dir}", tasks_dir=tasks_dir)
     
     all_train_samples = []
     all_val_samples = []
     
     # Download COCO 2017
-    print(f"\n{'='*80}")
-    print("STEP 1: DOWNLOADING COCO 2017 DATASET")
-    print(f"{'='*80}")
+    logger.info("=" * 80)
+    logger.info("STEP 1: DOWNLOADING COCO 2017 DATASET")
+    logger.info("=" * 80)
     
-    print("\nℹ️  This may take a few minutes on first run (cached afterwards)...")
+    logger.info("ℹ️  This may take a few minutes on first run (cached afterwards)...")
     
     # Load dataset - use the 2017 version
     coco_dataset = load_dataset("detection-datasets/coco", revision="main")
     coco_train = coco_dataset["train"]
     coco_val = coco_dataset["val"]
     
-    print(f"✓ Loaded COCO 2017 - Train: {len(coco_train):,}, Validation: {len(coco_val):,}")
+    logger.info("✓ Loaded COCO 2017 - Train: {train_count}, Validation: {val_count}", train_count=len(coco_train), val_count=len(coco_val))
     
     # Get category ID to string converter
     category_int2str = coco_train.features["objects"].feature["category"].int2str
     
     # Process train split
-    print(f"\n{'='*80}")
-    print("STEP 2: PROCESSING TRAIN SPLIT")
-    print(f"{'='*80}")
+    logger.info("=" * 80)
+    logger.info("STEP 2: PROCESSING TRAIN SPLIT")
+    logger.info("=" * 80)
     
     actual_train_samples = min(train_samples, len(coco_train))
-    print(f"\n📊 Total COCO train images: {len(coco_train):,}")
-    print(f"📊 Sampling {actual_train_samples:,} images")
+    logger.info("📊 Total COCO train images: {total}", total=len(coco_train))
+    logger.info("📊 Sampling {samples} images", samples=actual_train_samples)
     
     random.seed(seed)
     train_indices = random.sample(range(len(coco_train)), actual_train_samples)
@@ -127,13 +129,13 @@ def download_and_prepare_coco(
         all_train_samples.append(task_entry)
     
     # Process validation split
-    print(f"\n{'='*80}")
-    print("STEP 3: PROCESSING VALIDATION SPLIT")
-    print(f"{'='*80}")
+    logger.info("=" * 80)
+    logger.info("STEP 3: PROCESSING VALIDATION SPLIT")
+    logger.info("=" * 80)
     
     actual_val_samples = min(val_samples, len(coco_val))
-    print(f"\n📊 Total COCO validation images: {len(coco_val):,}")
-    print(f"📊 Sampling {actual_val_samples:,} images")
+    logger.info("📊 Total COCO validation images: {total}", total=len(coco_val))
+    logger.info("📊 Sampling {samples} images", samples=actual_val_samples)
     
     random.seed(seed + 1000)
     val_indices = random.sample(range(len(coco_val)), actual_val_samples)
@@ -166,9 +168,9 @@ def download_and_prepare_coco(
         all_val_samples.append(task_entry)
     
     # Save task files
-    print(f"\n{'='*80}")
-    print("STEP 4: SAVING TASK FILES")
-    print(f"{'='*80}")
+    logger.info("=" * 80)
+    logger.info("STEP 4: SAVING TASK FILES")
+    logger.info("=" * 80)
     
     train_task_file = tasks_dir / "train_tasks.json"
     val_task_file = tasks_dir / "val_tasks.json"
@@ -179,11 +181,11 @@ def download_and_prepare_coco(
     with open(val_task_file, 'w') as f:
         json.dump(all_val_samples, f, indent=2)
     
-    print(f"\n✅ Saved {len(all_train_samples):,} train samples to {train_task_file}")
-    print(f"✅ Saved {len(all_val_samples):,} validation samples to {val_task_file}")
+    logger.info("✅ Saved {train_count} train samples to {train_file}", train_count=len(all_train_samples), train_file=train_task_file)
+    logger.info("✅ Saved {val_count} validation samples to {val_file}", val_count=len(all_val_samples), val_file=val_task_file)
     
     # Show category statistics
-    print(f"\n📊 Object category statistics:")
+    logger.info("📊 Object category statistics:")
     all_categories = []
     for sample in all_train_samples + all_val_samples:
         all_categories.extend(sample.get("categories", []))
@@ -192,47 +194,47 @@ def download_and_prepare_coco(
         from collections import Counter
         category_counts = Counter(all_categories)
         top_10 = category_counts.most_common(10)
-        print(f"  - Total unique categories: {len(category_counts)}")
-        print(f"  - Top 10 categories:")
+        logger.info("  - Total unique categories: {total}", total=len(category_counts))
+        logger.info("  - Top 10 categories:")
         for cat, count in top_10:
-            print(f"    • {cat}: {count}")
+            logger.info("    • {category}: {count}", category=cat, count=count)
     
     # Summary
-    print(f"\n{'='*80}")
-    print("SUMMARY")
-    print(f"{'='*80}")
-    print(f"✅ Total images saved: {len(list(images_dir.glob('*.jpg'))):,}")
-    print(f"✅ Train task file: {train_task_file} ({len(all_train_samples):,} samples)")
-    print(f"✅ Validation task file: {val_task_file} ({len(all_val_samples):,} samples)")
-    print(f"\n✅ Done! Use these files as negative samples in your multi-task config.")
-    print(f"\nExample usage in config:")
-    print(f"")
-    print(f"  # As negatives for drug extraction")
-    print(f"  negative_samples:")
-    print(f"    - train_tasks_path: {train_task_file}")
-    print(f"      val_tasks_path: {val_task_file}")
-    print(f"      images_root_dir: {images_dir}")
-    print(f"      images_url_key: image_urls")
-    print(f"      negative_extractor: coco_to_drug_extraction")
-    print(f"      ratio: 1.0")
-    print(f"")
-    print(f"  # As negatives for prescription validation")
-    print(f"  negative_samples:")
-    print(f"    - train_tasks_path: {train_task_file}")
-    print(f"      val_tasks_path: {val_task_file}")
-    print(f"      images_root_dir: {images_dir}")
-    print(f"      images_url_key: image_urls")
-    print(f"      negative_extractor: coco_to_prescription_validation")
-    print(f"      ratio: 1.0")
-    print(f"")
-    print(f"  # As negatives for receipt validation")
-    print(f"  negative_samples:")
-    print(f"    - train_tasks_path: {train_task_file}")
-    print(f"      val_tasks_path: {val_task_file}")
-    print(f"      images_root_dir: {images_dir}")
-    print(f"      images_url_key: image_urls")
-    print(f"      negative_extractor: coco_to_receipt_validation")
-    print(f"      ratio: 1.0")
+    logger.info("=" * 80)
+    logger.info("SUMMARY")
+    logger.info("=" * 80)
+    logger.info("✅ Total images saved: {total}", total=len(list(images_dir.glob('*.jpg'))))
+    logger.info("✅ Train task file: {train_file} ({train_count} samples)", train_file=train_task_file, train_count=len(all_train_samples))
+    logger.info("✅ Validation task file: {val_file} ({val_count} samples)", val_file=val_task_file, val_count=len(all_val_samples))
+    logger.info("✅ Done! Use these files as negative samples in your multi-task config.")
+    logger.info("📄 Example usage in config:")
+    logger.info("")
+    logger.info("  # As negatives for drug extraction")
+    logger.info("  negative_samples:")
+    logger.info("    - train_tasks_path: {train_file}", train_file=train_task_file)
+    logger.info("      val_tasks_path: {val_file}", val_file=val_task_file)
+    logger.info("      images_root_dir: {images_dir}", images_dir=images_dir)
+    logger.info("      images_url_key: image_urls")
+    logger.info("      negative_extractor: coco_to_drug_extraction")
+    logger.info("      ratio: 1.0")
+    logger.info("")
+    logger.info("  # As negatives for prescription validation")
+    logger.info("  negative_samples:")
+    logger.info("    - train_tasks_path: {train_file}", train_file=train_task_file)
+    logger.info("      val_tasks_path: {val_file}", val_file=val_task_file)
+    logger.info("      images_root_dir: {images_dir}", images_dir=images_dir)
+    logger.info("      images_url_key: image_urls")
+    logger.info("      negative_extractor: coco_to_prescription_validation")
+    logger.info("      ratio: 1.0")
+    logger.info("")
+    logger.info("  # As negatives for receipt validation")
+    logger.info("  negative_samples:")
+    logger.info("    - train_tasks_path: {train_file}", train_file=train_task_file)
+    logger.info("      val_tasks_path: {val_file}", val_file=val_task_file)
+    logger.info("      images_root_dir: {images_dir}", images_dir=images_dir)
+    logger.info("      images_url_key: image_urls")
+    logger.info("      negative_extractor: coco_to_receipt_validation")
+    logger.info("      ratio: 1.0")
 
 
 def main():
