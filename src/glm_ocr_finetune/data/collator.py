@@ -12,15 +12,32 @@ from PIL import Image
 logger = structlog.get_logger(__name__)
 
 
-def get_ocr_friendly_augmentation():
+def get_ocr_friendly_augmentation(
+        degrees: float = 6.0,
+        perspective_distortion: float = 0.15,
+        gaussian_blur_kernel: tuple = (3,3),
+        gaussian_blur_sigma: tuple = (0.1, 1.2),
+        sharpness_factor: float = 1.5,
+        color_jitter_params: dict = {"brightness": 0.2, "contrast": 0.2, "saturation": 0.05, "hue": 0.02},
+        random_erasing_params: dict = {"scale": (0.01, 0.03), "ratio": (0.2, 3.0), "value": 0.0},
+        
+):
+    assert type(degrees) in [int, float], "degrees should be a single number (float or int)"
+    assert type(perspective_distortion) in [int, float], "perspective_distortion should be a single number (float or int)"
+    assert isinstance(gaussian_blur_kernel, tuple) and len(gaussian_blur_kernel) == 2, "gaussian_blur_kernel should be a tuple of two integers"
+    assert isinstance(gaussian_blur_sigma, tuple) and len(gaussian_blur_sigma) == 2, "gaussian_blur_sigma should be a tuple of two floats"
+    assert type(sharpness_factor) in [int, float], "sharpness_factor should be a single number (float or int)"
+    assert isinstance(color_jitter_params, dict), "color_jitter_params should be a dictionary"
+    assert isinstance(random_erasing_params, dict), "random_erasing_params should be a dictionary"
+    
     # Light, text-preserving augs for OCR
     return torch.nn.Sequential(
-        K.RandomRotation(degrees=6.0, p=0.3),
-        K.RandomPerspective(0.15, p=0.3),
-        K.RandomGaussianBlur((3,3), (0.1, 1.2), p=0.35),
-        K.RandomSharpness(sharpness=1.5, p=0.3),
-        K.ColorJitter(brightness=0.2, contrast=0.2, saturation=0.05, hue=0.02, p=0.5),
-        K.RandomErasing(p=0.2, scale=(0.01, 0.03), ratio=(0.2, 3.0), value=0.0),
+        K.RandomRotation(degrees=degrees, p=0.3),
+        K.RandomPerspective(perspective_distortion, p=0.3),
+        K.RandomGaussianBlur(gaussian_blur_kernel, gaussian_blur_sigma, p=0.35),
+        K.RandomSharpness(sharpness=sharpness_factor, p=0.3),
+        K.ColorJitter(**color_jitter_params, p=0.5),
+        K.RandomErasing(p=0.2, **random_erasing_params),
     )
 
 def apply_augmentation(k_aug: torch.nn.Sequential, img: Image.Image, device=torch.device("cpu")):
@@ -155,6 +172,11 @@ class DrugNameDataCollator:
             labels[batch_idx, :seq_idx + prefix_length] = -100
 
         return labels
+    
+
+class PrescriptionValidationCollator(DrugNameDataCollator):
+    pass # For now, same as DrugNameDataCollator, but can be customized later if needed (e.g. different label handling)
+
 
 if __name__ == "__main__":
 
