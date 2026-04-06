@@ -241,7 +241,7 @@ def download_tasks_images_fast(client: storage.Client, bucket_name: str, output_
 
 
 def load_jsonl_tasks(*jsonl_paths: str) -> List[Dict]:
-    """Load tasks from one or more JSONL files in the Kera production annotation format.
+    """Load tasks from one or more local JSONL files in the Kera production annotation format.
 
     Each line is expected to have the structure:
         {"image_id": "...", "image_path": "gs://...", "fields": {...}, ...}
@@ -278,22 +278,102 @@ def load_jsonl_tasks(*jsonl_paths: str) -> List[Dict]:
                 record["image_urls"] = [gcs_url] if gcs_url else []
                 output.append(record)
                 count += 1
-        logger.info("Loaded {count} tasks from {path}", count=count, path=path)
+        logger.info("Loaded tasks from local JSONL", count=count, path=path)
     return output
+
+
+DEFAULT_ANNOTATIONS_GCS_PREFIX = "annotated_image_data/prescriptions/v_20260402_013946/"
+
+
+def fetch_annotation_files_from_gcs(
+    client: storage.Client,
+    bucket_name: str,
+    gcs_prefix: str,
+    local_dir: str,
+) -> List[str]:
+    """Download all JSONL annotation files from a GCS prefix to a local directory.
+
+    Lists every blob under ``gcs_prefix`` whose name ends in ``.jsonl``, downloads
+    each one to ``local_dir`` (preserving only the filename, not any sub-path), and
+    returns the list of local paths that were written.
+
+    Args:
+        client:      Authenticated GCS client.
+        bucket_name: Name of the GCS bucket.
+        gcs_prefix:  Object prefix under which annotation JSONL files live,
+                     e.g. ``annotated_image_data/prescriptions/v_20260402_013946/``.
+        local_dir:   Local directory where files will be saved.
+
+    Returns:
+        List of absolute local file paths for every downloaded JSONL file.
+    """
+    os.makedirs(local_dir, exist_ok=True)
+    bucket = client.bucket(bucket_name)
+    blobs = list(client.list_blobs(bucket_name, prefix=gcs_prefix))
+    jsonl_blobs = [b for b in blobs if b.name.endswith(".jsonl")]
+
+    if not jsonl_blobs:
+        logger.warning(
+            "No JSONL files found at GCS prefix",
+            bucket=bucket_name,
+            prefix=gcs_prefix,
+        )
+        return []
+
+    logger.info(
+        "Found annotation JSONL files",
+        count=len(jsonl_blobs),
+        bucket=bucket_name,
+        prefix=gcs_prefix,
+    )
+
+    local_paths: List[str] = []
+    for blob in jsonl_blobs:
+        filename = os.path.basename(blob.name)
+        local_path = os.path.join(local_dir, filename)
+        if os.path.exists(local_path):
+            logger.info("Annotation file already exists, skipping download", path=local_path)
+        else:
+            logger.info("Downloading annotation file", blob=blob.name, dest=local_path)
+            blob.download_to_filename(local_path)
+        local_paths.append(local_path)
+
+    return local_paths
 
 
 def get_args():
     import argparse
 
-    parser = argparse.ArgumentParser(description="Download images from GCS based on annotated JSONL files.")
-    parser.add_argument("--train_jsonl", type=str, required=True,
-                        help="Path to the annotated training JSONL file (image_path is a GCS URL).")
-    parser.add_argument("--test_jsonl", type=str, default=None,
-                        help="Path to the annotated test JSONL file (optional).")
-    parser.add_argument("--secrets_path", type=str, required=True,
-                        help="Path to Google Cloud service account JSON file.")
-    parser.add_argument("--images_output_dir", type=str, required=True,
-                        help="Directory to save downloaded images.")
+    parser = argparse.ArgumentParser(
+        description="Download prescription images and annotation JSONL files from GCS."
+    )
+    parser.add_argument(
+        "--annotations_gcs_prefix",
+        type=str,
+        default=DEFAULT_ANNOTATIONS_GCS_PREFIX,
+        help=(
+            "GCS object prefix under which annotation JSONL files live "
+            f"(default: {DEFAULT_ANNOTATIONS_GCS_PREFIX})"
+        ),
+    )
+    parser.add_argument(
+        "--annotations_local_dir",
+        type=str,
+        required=True,
+        help="Local directory where annotation JSONL files will be saved after download.",
+    )
+    parser.add_argument(
+        "--secrets_path",
+        type=str,
+        required=True,
+        help="Path to Google Cloud service account JSON file.",
+    )
+    parser.add_argument(
+        "--images_output_dir",
+        type=str,
+        required=True,
+        help="Local directory to save downloaded images.",
+    )
     return parser.parse_args()
 
 
@@ -304,11 +384,32 @@ def main():
         secrets = json.load(f)
     client = storage.Client.from_service_account_info(secrets)
 
-    tasks = load_jsonl_tasks(args.train_jsonl, args.test_jsonl or "")
-
     images_bucket_name = "kera-production.appspot.com"
-    download_tasks_images_fast(client, images_bucket_name, args.images_output_dir, tasks,
-                               image_urls_key="image_urls")
+
+    # Step 1: download annotation JSONL files from GCS
+    local_jsonl_paths = fetch_annotation_files_from_gcs(
+        client,
+        images_bucket_name,
+        args.annotations_gcs_prefix,
+        args.annotations_local_dir,
+    )
+
+    if not local_jsonl_paths:
+        logger.error(
+            "No annotation files found; cannot download images.",
+            prefix=args.annotations_gcs_prefix,
+        )
+        raise SystemExit(1)
+
+    # Step 2: load tasks and download images
+    tasks = load_jsonl_tasks(*local_jsonl_paths)
+    download_tasks_images_fast(
+        client,
+        images_bucket_name,
+        args.images_output_dir,
+        tasks,
+        image_urls_key="image_urls",
+    )
 
 if __name__ == "__main__":
     main()

@@ -71,29 +71,26 @@ mkdir -p "$coco_dataset_dir"
 prescription_dataset_dir="${data_directory}/data/prescription_dataset"
 mkdir -p "$prescription_dataset_dir"
 
-# Annotated JSONL files — set PRESCRIPTION_TRAIN_JSONL / PRESCRIPTION_TEST_JSONL
-# as environment variables before running this script if the files live elsewhere.
-prescription_train_jsonl="${PRESCRIPTION_TRAIN_JSONL:-${data_directory}/annotations/prescriptions-train.jsonl}"
-prescription_test_jsonl="${PRESCRIPTION_TEST_JSONL:-${data_directory}/annotations/prescriptions-test.jsonl}"
+# Annotation JSONL files are fetched directly from GCS by download_production_images.py.
+# Override ANNOTATIONS_GCS_PREFIX to pin a specific dataset version.
+annotations_gcs_prefix="${ANNOTATIONS_GCS_PREFIX:-annotated_image_data/prescriptions/v_20260402_013946/}"
+annotations_local_dir="${data_directory}/annotations/prescriptions"
+mkdir -p "$annotations_local_dir"
 
-echo "Downloading production prescription images..."
-test_jsonl_arg=""
-if [ -f "$prescription_test_jsonl" ]; then
-    test_jsonl_arg="--test_jsonl $prescription_test_jsonl"
-fi
+echo "Downloading production prescription images and annotation files..."
 poetry run python scripts/download_production_images.py \
-    --train_jsonl "$prescription_train_jsonl" \
-    $test_jsonl_arg \
+    --annotations_gcs_prefix "$annotations_gcs_prefix" \
+    --annotations_local_dir "$annotations_local_dir" \
     --secrets_path secrets.json \
     --images_output_dir "$prescription_images_dir"
 
 echo "Preparing Kera prescription dataset..."
 test_arg=""
-if [ -f "$prescription_test_jsonl" ]; then
-    test_arg="--test_jsonl $prescription_test_jsonl"
+if [ -f "${annotations_local_dir}/test.jsonl" ]; then
+    test_arg="--test_jsonl ${annotations_local_dir}/test.jsonl"
 fi
 poetry run python scripts/prepare_kera_prescription.py \
-    --train_jsonl "$prescription_train_jsonl" \
+    --train_jsonl "${annotations_local_dir}/train.jsonl" \
     $test_arg \
     --output_dir "$prescription_dataset_dir" \
     --val_ratio 0.1 \
