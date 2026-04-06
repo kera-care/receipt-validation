@@ -8,7 +8,7 @@ from tqdm import tqdm
 
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import threading
-from typing import Any, list, dict, Tuple
+from typing import Any
 import structlog
 
 logger = structlog.get_logger(__name__)
@@ -24,7 +24,7 @@ def is_valid_image_file(file_path: str) -> bool:
         return False
 
 
-def _download_single_image(client: storage.Client, bucket_name: str, output_dir: str, image_url: str) -> Tuple[bool, str, str]:
+def _download_single_image(client: storage.Client, bucket_name: str, output_dir: str, image_url: str) -> tuple[bool, str, str]:
     """
     Download a single image from GCS bucket.
     
@@ -35,7 +35,7 @@ def _download_single_image(client: storage.Client, bucket_name: str, output_dir:
         image_url: URL of the image to download
     
     Returns:
-        Tuple[bool, str, str]: (success, image_url, error_message)
+        tuple[bool, str, str]: (success, image_url, error_message)
     """
     try:
         bucket = client.bucket(bucket_name)
@@ -79,7 +79,7 @@ def _download_single_image(client: storage.Client, bucket_name: str, output_dir:
 
 def _download_task_images_threaded(client: storage.Client, bucket_name: str, output_dir: str, 
                                  task: dict, max_workers: int = 5, image_urls_key: str = "prescription_image_urls"
-                                 ) -> Tuple[int, int, list[str]]:
+                                 ) -> tuple[int, int, list[str]]:
     """
     Download all images for a single task using multithreading.
     
@@ -92,7 +92,7 @@ def _download_task_images_threaded(client: storage.Client, bucket_name: str, out
         image_urls_key: Key in task dict containing image URLs
     
     Returns:
-        Tuple[int, int, list[str]]: (successful_downloads, total_images, failed_urls)
+        tuple[int, int, list[str]]: (successful_downloads, total_images, failed_urls)
     """
     image_urls = task.get(image_urls_key, [])
     task_id = task.get("task_id", "unknown")
@@ -207,12 +207,12 @@ def download_tasks_images(client: storage.Client, bucket_name: str, output_dir: 
     if all_failed_urls:
         logger.warning("Failed URLs (showing first 10)", failed_urls=all_failed_urls[:10])
         for url in all_failed_urls[:10]:
-            logger.warning("  - {url}", url=url)
+            logger.warning("Failed URL", url=url)
+
         if len(all_failed_urls) > 10:
-            logger.warning("  ... and {remaining} more", remaining=len(all_failed_urls) - 10)
-    
-    logger.info(f"{'='*80}\n")
-    
+            logger.warning("Failed URLs truncated", remaining=len(all_failed_urls) - 10)
+
+        
     return {
         'total_images': total_images,
         'successful': total_successful,
