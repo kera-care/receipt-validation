@@ -79,7 +79,6 @@ class DrugNameDataCollator:
     assistant_only: bool = True
     assistance_prefix: str = "<|assistant|>"
     thinking_prefix: str = "\n<think></think>\n"
-    image_tokens = []
     augmentation: Callable[[Image.Image], Image.Image] | None = None
 
 

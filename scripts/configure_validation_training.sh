@@ -108,7 +108,6 @@ poetry run python scripts/prepare_cord.py \
 echo "Preparing COCO dataset..."
 poetry run python scripts/prepare_coco.py \
     --output_dir "$coco_dataset_dir" \
-    --sample_ratio 0.1 \
     --train_samples 10000 \
     --val_samples 2000 \
     --seed 42

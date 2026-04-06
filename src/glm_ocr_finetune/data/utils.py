@@ -1,6 +1,7 @@
 import json
 import os
 import re
+from typing import Any
 import unicodedata
 from datasets import Dataset as HFDataset
 from structlog import get_logger
@@ -145,7 +146,7 @@ def load_prescription_validation_tasks(
     validate_image_paths: bool = False,
     skip_missing_images: bool = True,
     prompt: str = PRESCRIPTION_VALIDATION_PROMPTS["short"],
-) -> HFDataset:
+) -> list[dict[str, Any]]:
     """Load a prescription validation dataset as a Hugging Face Dataset.
 
     Args:
@@ -156,9 +157,11 @@ def load_prescription_validation_tasks(
         A Hugging Face ``Dataset`` with columns derived from the task dicts
         (e.g. ``messages``, ``labels``, ``transaction_id``, …).
     """
+
     logger.info("Loading tasks", tasks_path=tasks_path, validate_image_paths=validate_image_paths, skip_missing_images=skip_missing_images, prompt=prompt)
     with open(tasks_path, "r") as f:
         tasks = json.load(f)
+
     output_tasks = []
     num_skipped_tasks = 0
     for task in tasks:
