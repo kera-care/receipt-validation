@@ -24,8 +24,9 @@ mount_point="/mnt/datadrive"
 data_directory="${mount_point}/vision-llm-finetune-data"
 
 # ── Paths (edit these) ───────────────────────────────────────────────
-TRAIN_DATASET_PATH="${TRAIN_DATASET_PATH:-${${data_directory}/prescription_validation/merged_dataset/train.jsonl}}"
-EVAL_DATASET_PATH="${EVAL_DATASET_PATH:-${data_directory}/prescription_validation/merged_dataset/val.jsonl}}"
+TRAIN_DATASET_PATH="${TRAIN_DATASET_PATH:-${data_directory}/prescription_validation/merged_dataset/train_tasks.json}"
+
+EVAL_DATASET_PATH="${EVAL_DATASET_PATH:-${data_directory}/prescription_validation/merged_dataset/val_tasks.json}"
 
 HF_CACHE_DIR="${HF_CACHE_DIR:-/mnt/datadrive/vision-llm-finetune-data/hf-cache}"
 mkdir -p "$HF_CACHE_DIR"
@@ -81,7 +82,6 @@ echo "============================================="
 echo "  GPUs:             ${NUM_GPUS}"
 echo "  Accelerate cfg:   ${ACCEL_CONFIG}"
 echo "  Model:            ${MODEL_PATH}"
-echo "  Images root:      ${IMAGES_ROOT_DIR}"
 echo "  Train dataset:    ${TRAIN_DATASET_PATH}"
 echo "  Eval dataset:     ${EVAL_DATASET_PATH}"
 echo "  Output dir:       ${OUTPUT_DIR}"
@@ -109,7 +109,6 @@ poetry run accelerate launch \
     --num_processes "${NUM_GPUS}" \
     -m glm_ocr_finetune.train_validation \
     --model_path "${MODEL_PATH}" \
-    --images_root_dir "${IMAGES_ROOT_DIR}" \
     --train_dataset_path "${TRAIN_DATASET_PATH}" \
     --eval_dataset_path "${EVAL_DATASET_PATH}" \
     --output_dir "${OUTPUT_DIR}" \

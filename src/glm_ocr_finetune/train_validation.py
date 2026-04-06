@@ -4,7 +4,6 @@ Full fine-tuning script for zai-org/GLM-OCR on drug name extraction.
 Launch with Accelerate:
     accelerate launch --config_file configs/accelerate_config.yaml \
         -m glm_ocr_finetune.train \
-        --images_root_dir /path/to/images \
         [--train_dataset_path dataset/train_tasks.json] \
         [--eval_dataset_path dataset/dev_tasks.json] \
         [--output_dir outputs/glm-ocr-finetune]
@@ -40,7 +39,6 @@ def parse_args() -> argparse.Namespace:
     # --- Data ---
     parser.add_argument("--train_dataset_path", type=str, default=DataConfig.train_dataset_path)
     parser.add_argument("--eval_dataset_path", type=str, default=DataConfig.eval_dataset_path)
-    parser.add_argument("--images_root_dir", type=str, required=True)
     parser.add_argument("--validate_image_paths", action="store_true", default=DataConfig.validate_image_paths)
     parser.add_argument("--no_validate_image_paths", action="store_false", dest="validate_image_paths")
     parser.add_argument("--max_length", type=int, default=DataConfig.max_length)
