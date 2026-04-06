@@ -247,7 +247,8 @@ if __name__ == "__main__":
     batch = [{"messages": messages}]
     inputs = collator(batch)
     for key in inputs:
-        logger.info(f"{key}: {inputs[key].shape}, dtype={inputs[key].dtype}")
+        logger.info("tensor_shape", key=key, shape=str(inputs[key].shape), dtype=str(inputs[key].dtype))
+
     input_ids = inputs["input_ids"]
     input_ids_decoded = processor.batch_decode(input_ids, skip_special_tokens=False)
     # print("Decoded Input:", input_ids_decoded)

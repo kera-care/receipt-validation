@@ -250,7 +250,8 @@ def load_prescription_validation_datasets(
         validate_image_paths: Whether to verify image files exist on disk.
         skip_missing_images: Whether to skip tasks with missing images.
     Returns:
-        A tuple of (train_dataset, val_dataset) as Hugging Face Datasets.
+        A Hugging Face ``Dataset`` with columns derived from the task dicts
+        (e.g. ``messages``, ``labels``, ``transaction_id``, …).
     """
     tasks = load_prescription_validation_tasks(
         tasks_path=tasks_path,
@@ -258,17 +259,3 @@ def load_prescription_validation_datasets(
         skip_missing_images=skip_missing_images,
     )
     return HFDataset.from_list(tasks)
-
-
-
-
-if __name__ == "__main__":
-    dataset = load_drug_name_extraction_dataset(
-        dataset_path="dataset/train_tasks.json",
-        images_root_dir="/path/to/images",
-    )
-    print(f"Dataset size: {len(dataset)}")
-    print("Columns:", dataset.column_names)
-    sample = dataset[0]
-    print("Sample messages:", sample["messages"])
-    print("Sample labels:", sample["labels"])
