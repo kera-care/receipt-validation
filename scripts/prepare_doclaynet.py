@@ -28,6 +28,10 @@ from pathlib import Path
 from typing import Dict
 import argparse
 from tqdm import tqdm
+import structlog
+
+
+logger = structlog.get_logger(__name__)
 
 
 DOCLAYNET_CORE_URL = "https://codait-cos-dax.s3.us.cloud-object-storage.appdomain.cloud/dax-doclaynet/1.0.0/DocLayNet_core.zip"
@@ -48,7 +52,7 @@ def download_file(url: str, dest_path: Path, desc: str = "Downloading", max_retr
     
     # Check if already fully downloaded
     if dest_path.exists():
-        print(f"✓ {dest_path.name} already exists, skipping download")
+        logger.info(f"✓ {dest_path.name} already exists, skipping download")
         return
     
     # Get total file size
@@ -63,11 +67,11 @@ def download_file(url: str, dest_path: Path, desc: str = "Downloading", max_retr
         if resume_pos >= total_size:
             # Partial file is complete, just rename it
             temp_path.rename(dest_path)
-            print(f"✓ {dest_path.name} already downloaded")
+            logger.info(f"✓ {dest_path.name} already downloaded")
             return
-        print(f"📥 Resuming {desc} from {resume_pos:,} bytes ({resume_pos/total_size*100:.1f}%)")
+        logger.info(f"📥 Resuming {desc} from {resume_pos:,} bytes ({resume_pos/total_size*100:.1f}%)")
     else:
-        print(f"📥 {desc} from {url}")
+        logger.info(f"📥 {desc} from {url}")
     
     retry_count = 0
     while retry_count < max_retries:
@@ -102,21 +106,21 @@ def download_file(url: str, dest_path: Path, desc: str = "Downloading", max_retr
             
             # Download complete, rename to final name
             temp_path.rename(dest_path)
-            print(f"✓ Downloaded to {dest_path}")
+            logger.info(f"✓ Downloaded to {dest_path}")
             return
             
         except (urllib.error.URLError, TimeoutError, ConnectionError) as e:
             retry_count += 1
             if retry_count < max_retries:
                 wait_time = min(2 ** retry_count, 60)  # Exponential backoff, max 60s
-                print(f"⚠️  Download interrupted: {e}")
-                print(f"   Retry {retry_count}/{max_retries} in {wait_time}s...")
+                logger.warning(f"⚠️  Download interrupted: {e}")
+                logger.info(f"   Retry {retry_count}/{max_retries} in {wait_time}s...")
                 time.sleep(wait_time)
                 # Update resume position
                 if temp_path.exists():
                     resume_pos = temp_path.stat().st_size
             else:
-                print(f"❌ Failed to download after {max_retries} attempts")
+                logger.error(f"❌ Failed to download after {max_retries} attempts")
                 raise
 
 
@@ -128,10 +132,10 @@ def extract_zip(zip_path: Path, extract_to: Path):
     # Check if already extracted by looking for the expected directory
     expected_dir = extract_to / zip_path.stem  # e.g., DocLayNet_core
     if expected_dir.exists():
-        print(f"✓ {zip_path.name} already extracted to {expected_dir}")
+        logger.info(f"✓ {zip_path.name} already extracted to {expected_dir}")
         return
     
-    print(f"📦 Extracting {zip_path.name}...")
+    logger.info(f"📦 Extracting {zip_path.name}...")
     extract_to.mkdir(parents=True, exist_ok=True)
     
     # Check if pv (pipe viewer) is available for progress
@@ -151,18 +155,18 @@ def extract_zip(zip_path: Path, extract_to: Path):
                 capture_output=True,
                 text=True
             )
-        print(f"✓ Extracted to {extract_to}")
+        logger.info(f"✓ Extracted to {extract_to}")
     except subprocess.CalledProcessError as e:
-        print(f"❌ Extraction failed")
+        logger.error(f"❌ Extraction failed")
         raise
     except FileNotFoundError:
-        print("❌ 'unzip' command not found. Please install unzip utility.")
+        logger.error("❌ 'unzip' command not found. Please install unzip utility.")
         raise
 
 
 def load_coco_annotations(coco_json_path: Path) -> Dict:
     """Load COCO format annotations."""
-    print(f"📋 Loading annotations from {coco_json_path.name}")
+    logger.info(f"📋 Loading annotations from {coco_json_path.name}")
     
     with open(coco_json_path, 'r') as f:
         coco_data = json.load(f)
@@ -177,7 +181,7 @@ def load_coco_annotations(coco_json_path: Path) -> Dict:
             'collection': img.get('collection', 'unknown'),
         }
     
-    print(f"✓ Loaded {len(image_info)} image annotations")
+    logger.info(f"✓ Loaded {len(image_info)} image annotations")
     return image_info
 
 
@@ -194,9 +198,9 @@ def download_and_prepare_doclaynet(
         sample_ratio: Ratio of dataset to use (default 0.1 = 10%)
         seed: Random seed for reproducibility
     """
-    print("=" * 80)
-    print("PREPARING DOCLAYNET NEGATIVES FOR MULTI-TASK LEARNING")
-    print("=" * 80)
+    logger.info("=" * 80)
+    logger.info("PREPARING DOCLAYNET NEGATIVES FOR MULTI-TASK LEARNING")
+    logger.info("=" * 80)
     
     # Create output directories
     images_dir = output_dir / "images"
@@ -211,31 +215,31 @@ def download_and_prepare_doclaynet(
     extract_dir = output_dir / "extracted"
     extract_dir.mkdir(parents=True, exist_ok=True)
     
-    print(f"\n📁 Output directory: {output_dir}")
-    print(f"📁 Images directory: {images_dir}")
-    print(f"📁 Tasks directory: {tasks_dir}")
-    print(f"📁 Download directory: {download_dir}")
-    print(f"📁 Extract directory: {extract_dir}")
+    logger.info(f"\n📁 Output directory: {output_dir}")
+    logger.info(f"📁 Images directory: {images_dir}")
+    logger.info(f"📁 Tasks directory: {tasks_dir}")
+    logger.info(f"📁 Download directory: {download_dir}")
+    logger.info(f"📁 Extract directory: {extract_dir}")
     
     # Download DocLayNet core dataset
-    print(f"\n{'='*80}")
-    print("STEP 1: DOWNLOADING DOCLAYNET")
-    print(f"{'='*80}")
+    logger.info(f"\n{'='*80}")
+    logger.info("STEP 1: DOWNLOADING DOCLAYNET")
+    logger.info(f"{'='*80}")
     
     core_zip = download_dir / "DocLayNet_core.zip"
     download_file(DOCLAYNET_CORE_URL, core_zip, "DocLayNet Core (~30GB)")
     
     # Extract dataset
-    print(f"\n{'='*80}")
-    print("STEP 2: EXTRACTING DATASET")
-    print(f"{'='*80}")
+    logger.info(f"\n{'='*80}")
+    logger.info("STEP 2: EXTRACTING DATASET")
+    logger.info(f"{'='*80}")
     
     extract_zip(core_zip, extract_dir)
     
     # Load COCO annotations for train and val
-    print(f"\n{'='*80}")
-    print("STEP 3: LOADING ANNOTATIONS")
-    print(f"{'='*80}")
+    logger.info(f"\n{'='*80}")
+    logger.info("STEP 3: LOADING ANNOTATIONS")
+    logger.info(f"{'='*80}")
     
     core_path = extract_dir / "DocLayNet_core"
     train_coco = core_path / "COCO" / "train.json"
@@ -253,15 +257,15 @@ def download_and_prepare_doclaynet(
     val_image_info = load_coco_annotations(val_coco)
     
     # Process train split
-    print(f"\n{'='*80}")
-    print(f"STEP 4: PROCESSING TRAIN SPLIT")
-    print(f"{'='*80}")
+    logger.info(f"\n{'='*80}")
+    logger.info("STEP 4: PROCESSING TRAIN SPLIT")
+    logger.info(f"{'='*80}")
     
     # Get list of available image IDs
     train_image_ids = list(train_image_info.keys())
     train_samples_to_use = int(len(train_image_ids) * sample_ratio)
-    print(f"\n📊 Total train images: {len(train_image_ids):,}")
-    print(f"📊 Sampling {sample_ratio*100}% = {train_samples_to_use:,} samples")
+    logger.info(f"\n📊 Total train images: {len(train_image_ids):,}")
+    logger.info(f"📊 Sampling {sample_ratio*100}% = {train_samples_to_use:,} samples")
     
     # Generate random indices for train
     random.seed(seed)
@@ -270,11 +274,11 @@ def download_and_prepare_doclaynet(
     # Examine first sample
     first_id = train_image_ids[0]
     first_info = train_image_info[first_id]
-    print(f"\n🔍 Dataset structure (first sample):")
-    print(f"  - image_id: {first_id}")
-    print(f"  - file_name: {first_info['file_name']}")
-    print(f"  - doc_category: {first_info['doc_category']}")
-    print(f"  - collection: {first_info['collection']}")
+    logger.info(f"\n🔍 Dataset structure (first sample):")
+    logger.info(f"  - image_id: {first_id}")
+    logger.info(f"  - file_name: {first_info['file_name']}")
+    logger.info(f"  - doc_category: {first_info['doc_category']}")
+    logger.info(f"  - collection: {first_info['collection']}")
     
     train_task_samples = []
     
@@ -286,7 +290,7 @@ def download_and_prepare_doclaynet(
         # Source PNG path
         source_png = png_dir / file_name
         if not source_png.exists():
-            print(f"  ⚠️  Image not found: {source_png}, skipping...")
+            logger.warning(f"  ⚠️  Image not found: {source_png}, skipping...")
             continue
         
         # Destination path - use original filename
@@ -307,15 +311,15 @@ def download_and_prepare_doclaynet(
         train_task_samples.append(task_entry)
     
     # Process validation split
-    print(f"\n{'='*80}")
-    print(f"STEP 5: PROCESSING VALIDATION SPLIT")
-    print(f"{'='*80}")
+    logger.info(f"\n{'='*80}")
+    logger.info("STEP 5: PROCESSING VALIDATION SPLIT")
+    logger.info(f"{'='*80}")
     
     # Get list of available image IDs
     val_image_ids = list(val_image_info.keys())
     val_samples_to_use = int(len(val_image_ids) * sample_ratio)
-    print(f"\n📊 Total validation images: {len(val_image_ids):,}")
-    print(f"📊 Sampling {sample_ratio*100}% = {val_samples_to_use:,} samples")
+    logger.info(f"\n📊 Total validation images: {len(val_image_ids):,}")
+    logger.info(f"📊 Sampling {sample_ratio*100}% = {val_samples_to_use:,} samples")
     
     # Generate random indices for validation (different seed)
     random.seed(seed + 1000)
@@ -331,7 +335,7 @@ def download_and_prepare_doclaynet(
         # Source PNG path
         source_png = png_dir / file_name
         if not source_png.exists():
-            print(f"  ⚠️  Image not found: {source_png}, skipping...")
+            logger.warning(f"  ⚠️  Image not found: {source_png}, skipping...")
             continue
         
         # Destination path - use original filename
@@ -351,9 +355,9 @@ def download_and_prepare_doclaynet(
         val_task_samples.append(task_entry)
     
     # Save task files
-    print(f"\n{'='*80}")
-    print(f"STEP 6: SAVING TASK FILES")
-    print(f"{'='*80}")
+    logger.info(f"\n{'='*80}")
+    logger.info(f"STEP 6: SAVING TASK FILES")
+    logger.info(f"{'='*80}")
     
     train_task_file = tasks_dir / "train_tasks.json"
     val_task_file = tasks_dir / "val_tasks.json"
@@ -364,45 +368,45 @@ def download_and_prepare_doclaynet(
     with open(val_task_file, 'w') as f:
         json.dump(val_task_samples, f, indent=2)
     
-    print(f"\n✅ Saved {len(train_task_samples):,} train samples to {train_task_file}")
-    print(f"✅ Saved {len(val_task_samples):,} validation samples to {val_task_file}")
+    logger.info(f"\n✅ Saved {len(train_task_samples):,} train samples to {train_task_file}")
+    logger.info(f"✅ Saved {len(val_task_samples):,} validation samples to {val_task_file}")
     
     # Show category distribution for train
-    print(f"\n📊 Train category distribution:")
+    logger.info(f"\n📊 Train category distribution:")
     categories = {}
     for entry in train_task_samples:
         cat = entry['doc_category']
         categories[cat] = categories.get(cat, 0) + 1
     
     for cat, count in sorted(categories.items(), key=lambda x: x[1], reverse=True):
-        print(f"  - {cat}: {count:,} ({count/len(train_task_samples)*100:.1f}%)")
+        logger.info(f"  - {cat}: {count:,} ({count/len(train_task_samples)*100:.1f}%)")
     
     # Show category distribution for validation
-    print(f"\n📊 Validation category distribution:")
+    logger.info(f"\n📊 Validation category distribution:")
     val_categories = {}
     for entry in val_task_samples:
         cat = entry['doc_category']
         val_categories[cat] = val_categories.get(cat, 0) + 1
     
     for cat, count in sorted(val_categories.items(), key=lambda x: x[1], reverse=True):
-        print(f"  - {cat}: {count:,} ({count/len(val_task_samples)*100:.1f}%)")
+        logger.info(f"  - {cat}: {count:,} ({count/len(val_task_samples)*100:.1f}%)")
     
     # Summary
-    print(f"\n{'='*80}")
-    print("SUMMARY")
-    print(f"{'='*80}")
-    print(f"✅ Total images saved: {len(list(images_dir.glob('*.png'))):,}")
-    print(f"✅ Train task file: {train_task_file} ({len(train_task_samples):,} samples)")
-    print(f"✅ Validation task file: {val_task_file} ({len(val_task_samples):,} samples)")
-    print(f"\n✅ Done! Use these files as negative samples in your multi-task config.")
-    print(f"\nExample usage in config:")
-    print(f"  negative_samples:")
-    print(f"    - train_tasks_path: {train_task_file}")
-    print(f"      val_tasks_path: {val_task_file}")
-    print(f"      images_root_dir: {images_dir}")
-    print(f"      images_url_key: image_urls")
-    print(f"      negative_extractor: doclaynet_to_drug_extraction  # or prescription/receipt")
-    print(f"      ratio: 1.0")
+    logger.info(f"\n{'='*80}")
+    logger.info("SUMMARY")
+    logger.info(f"{'='*80}")
+    logger.info(f"✅ Total images saved: {len(list(images_dir.glob('*.png'))):,}")
+    logger.info(f"✅ Train task file: {train_task_file} ({len(train_task_samples):,} samples)")
+    logger.info(f"✅ Validation task file: {val_task_file} ({len(val_task_samples):,} samples)")
+    logger.info(f"\n✅ Done! Use these files as negative samples in your multi-task config.")
+    logger.info(f"\nExample usage in config:")
+    logger.info(f"  negative_samples:")
+    logger.info(f"    - train_tasks_path: {train_task_file}")
+    logger.info(f"      val_tasks_path: {val_task_file}")
+    logger.info(f"      images_root_dir: {images_dir}")
+    logger.info(f"      images_url_key: image_urls")
+    logger.info(f"      negative_extractor: doclaynet_to_drug_extraction  # or prescription/receipt")
+    logger.info(f"      ratio: 1.0")
 
 
 def main():

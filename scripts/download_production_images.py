@@ -8,7 +8,7 @@ from tqdm import tqdm
 
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import threading
-from typing import List, Dict, Tuple
+from typing import Any, list, dict, Tuple
 import structlog
 
 logger = structlog.get_logger(__name__)
@@ -79,7 +79,7 @@ def _download_single_image(client: storage.Client, bucket_name: str, output_dir:
 
 def _download_task_images_threaded(client: storage.Client, bucket_name: str, output_dir: str, 
                                  task: dict, max_workers: int = 5, image_urls_key: str = "prescription_image_urls"
-                                 ) -> Tuple[int, int, List[str]]:
+                                 ) -> Tuple[int, int, list[str]]:
     """
     Download all images for a single task using multithreading.
     
@@ -92,7 +92,7 @@ def _download_task_images_threaded(client: storage.Client, bucket_name: str, out
         image_urls_key: Key in task dict containing image URLs
     
     Returns:
-        Tuple[int, int, List[str]]: (successful_downloads, total_images, failed_urls)
+        Tuple[int, int, list[str]]: (successful_downloads, total_images, failed_urls)
     """
     image_urls = task.get(image_urls_key, [])
     task_id = task.get("task_id", "unknown")
@@ -126,9 +126,9 @@ def _download_task_images_threaded(client: storage.Client, bucket_name: str, out
 
 
 def download_tasks_images(client: storage.Client, bucket_name: str, output_dir: str, 
-                         tasks: List[Dict], max_workers: int = 20, images_per_task_workers: int = 5,
+                         tasks: list[dict], max_workers: int = 20, images_per_task_workers: int = 5,
                          image_urls_key: str = "prescription_image_urls"
-                        ) -> Dict[str, any]:
+                        ) -> dict[str, Any]:
     """
     Download images for multiple tasks using multithreading.
     
@@ -196,13 +196,13 @@ def download_tasks_images(client: storage.Client, bucket_name: str, output_dir: 
                 
                 pbar.update(1)
     
-    logger.info(f"\n{'='*80}")
-    logger.info("DOWNLOAD SUMMARY")
-    logger.info(f"{'='*80}")
-    logger.info(f"Total images: {total_images}")
-    logger.info(f"Successfully downloaded: {total_successful}")
-    logger.info(f"Failed downloads: {total_failed}")
-    logger.info(f"Success rate: {100 * total_successful / max(1, total_images):.1f}%")
+    logger.info(
+        "Download summary",
+        total_images=total_images,
+        total_successful=total_successful,
+        total_failed=total_failed,
+        success_rate=f"{100 * total_successful / max(1, total_images):.1f}%",
+    )
     
     if all_failed_urls:
         logger.warning("Failed URLs (showing first 10)", failed_urls=all_failed_urls[:10])
@@ -222,7 +222,7 @@ def download_tasks_images(client: storage.Client, bucket_name: str, output_dir: 
     }
 
 
-def download_tasks_images_fast(client: storage.Client, bucket_name: str, output_dir: str, tasks: List[Dict], image_urls_key: str = "prescription_image_urls") -> Dict[str, any]:
+def download_tasks_images_fast(client: storage.Client, bucket_name: str, output_dir: str, tasks: list[dict], image_urls_key: str = "prescription_image_urls") -> dict[str, Any]:
     """
     Fast download with aggressive threading (use with caution on rate-limited APIs).
     
@@ -240,7 +240,7 @@ def download_tasks_images_fast(client: storage.Client, bucket_name: str, output_
                                max_workers=50, images_per_task_workers=10, image_urls_key=image_urls_key)
 
 
-def load_jsonl_tasks(*jsonl_paths: str) -> List[Dict]:
+def load_jsonl_tasks(*jsonl_paths: str) -> list[dict]:
     """Load tasks from one or more local JSONL files in the Kera production annotation format.
 
     Each line is expected to have the structure:
@@ -256,7 +256,7 @@ def load_jsonl_tasks(*jsonl_paths: str) -> List[Dict]:
     Returns:
         Flat list of task dicts with an ``image_urls`` key added.
     """
-    output: List[Dict] = []
+    output: list[dict] = []
     for path in jsonl_paths:
         if not path:
             continue
@@ -290,7 +290,7 @@ def fetch_annotation_files_from_gcs(
     bucket_name: str,
     gcs_prefix: str,
     local_dir: str,
-) -> List[str]:
+) -> list[str]:
     """Download all JSONL annotation files from a GCS prefix to a local directory.
 
     Lists every blob under ``gcs_prefix`` whose name ends in ``.jsonl``, downloads
@@ -327,7 +327,7 @@ def fetch_annotation_files_from_gcs(
         prefix=gcs_prefix,
     )
 
-    local_paths: List[str] = []
+    local_paths: list[str] = []
     for blob in jsonl_blobs:
         filename = os.path.basename(blob.name)
         local_path = os.path.join(local_dir, filename)
