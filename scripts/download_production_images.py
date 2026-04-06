@@ -384,7 +384,10 @@ def main():
         secrets = json.load(f)
     client = storage.Client.from_service_account_info(secrets)
 
-    images_bucket_name = "kera-production.appspot.com"
+    images_bucket_name = os.getenv("IMAGES_BUCKET_NAME", None)
+    if not images_bucket_name:
+        logger.error("Environment variable IMAGES_BUCKET_NAME not set.")
+        raise SystemExit(1)
 
     # Step 1: download annotation JSONL files from GCS
     local_jsonl_paths = fetch_annotation_files_from_gcs(

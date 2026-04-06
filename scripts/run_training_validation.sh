@@ -19,10 +19,13 @@ poetry run pip install flash-attn --no-build-isolation
 # GLM-OCR Fine-Tuning Launch Script
 # ──────────────────────────────────────────────────────────────────────
 
+mount_point="/mnt/datadrive"
+
+data_directory="${mount_point}/vision-llm-finetune-data"
+
 # ── Paths (edit these) ───────────────────────────────────────────────
-IMAGES_ROOT_DIR="${IMAGES_ROOT_DIR:-/mnt/datadrive/vision-llm-finetune-data/images/prod-prescriptions}"
-TRAIN_DATASET_PATH="${TRAIN_DATASET_PATH:-../kera-vision-llm-finetune/multi-task-data/prescription_dataset/splits/train_tasks.json}"
-EVAL_DATASET_PATH="${EVAL_DATASET_PATH:-../kera-vision-llm-finetune/multi-task-data/prescription_dataset/splits/dev_tasks.json}"
+TRAIN_DATASET_PATH="${TRAIN_DATASET_PATH:-${${data_directory}/prescription_validation/merged_dataset/train.jsonl}}"
+EVAL_DATASET_PATH="${EVAL_DATASET_PATH:-${data_directory}/prescription_validation/merged_dataset/val.jsonl}}"
 
 HF_CACHE_DIR="${HF_CACHE_DIR:-/mnt/datadrive/vision-llm-finetune-data/hf-cache}"
 mkdir -p "$HF_CACHE_DIR"

@@ -52,6 +52,24 @@ def _load_task_file(path: Path) -> list[dict[str, Any]]:
     return data
 
 
+def _load_jsonl_file(path: Path) -> list[dict[str, Any]]:
+    """Load a JSONL task file (one JSON object per line), returning an empty list if missing."""
+    if not path.exists():
+        log.warning("task_file_not_found", path=str(path))
+        return []
+    records: list[dict[str, Any]] = []
+    with path.open(encoding="utf-8") as f:
+        for line_no, raw in enumerate(f, start=1):
+            raw = raw.strip()
+            if not raw:
+                continue
+            try:
+                records.append(json.loads(raw))
+            except json.JSONDecodeError as exc:
+                log.warning("jsonl_parse_error", path=str(path), line=line_no, error=str(exc))
+    return records
+
+
 def _resolve_image_paths(
     tasks: list[dict[str, Any]],
     images_dir: Path,
@@ -174,21 +192,28 @@ def load_kera_prescriptions(
     split: str,
 ) -> list[dict[str, Any]]:
     """
-    Load Kera prescription tasks.
+    Load Kera prescription tasks produced by prepare_kera_prescription.py.
 
-    Kera splits use prescription_image_urls rather than image_urls, and the
-    task files live directly in splits_dir (not under a tasks/ subdirectory).
+    Output files from that script are JSONL and named:
+        train.jsonl, validation.jsonl, test.jsonl
+
+    The merge pipeline uses split names "train" and "val", so "val" is
+    mapped to "validation.jsonl" here.
 
     Args:
-        splits_dir:  Directory that contains train_tasks.json / val_tasks.json.
+        splits_dir:  Directory that contains train.jsonl / validation.jsonl.
         images_dir:  Directory that contains the prescription images.
         split:       "train" or "val".
     """
     if splits_dir is None or images_dir is None:
         return []
 
-    task_file = splits_dir / f"{split}_tasks.json"
-    tasks = _load_task_file(task_file)
+    # Map merge-pipeline split names to the filenames written by prepare_kera_prescription.py
+    filename_map = {"train": "train.jsonl", "val": "validation.jsonl"}
+    filename = filename_map.get(split, f"{split}.jsonl")
+    task_file = splits_dir / filename
+
+    tasks = _load_jsonl_file(task_file)
     log.info(
         "loaded_split",
         source="kera_prescription",
