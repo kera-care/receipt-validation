@@ -37,12 +37,21 @@ logger = structlog.get_logger(__name__)
 
 
 def _save_sample(args: tuple[int, object, Path, str, str]) -> dict:
-    """Save a single dataset sample as JPEG and return its task entry."""
-    idx, sample, images_dir, filename_stem, split_name = args
+    """Fetch one row from the Arrow dataset, save as JPEG, return task entry.
+
+    TODO: _save_sample and prepare_coco._save_coco_sample are nearly identical
+    (RGB convert → JPEG save → return dict). Unify into a shared helper in a
+    follow-up refactor.
+    """
+    i, subset, images_dir, filename_stem, split_name = args
+    sample = subset[i]  # decode only this row, inside the worker thread
     image = sample["image"]
     filename = f"{filename_stem}.jpg"
     image_path = images_dir / filename
     if not image_path.exists():
+        # quality=90 — intentional trade-off: ~20-30% smaller files vs original
+        # PNG encoding with no visually perceptible difference at receipt
+        # resolution. Update both scripts together if you want to change it.
         image.convert("RGB").save(image_path, "JPEG", quality=90)
     return {
         "image_urls": [filename],
@@ -66,14 +75,16 @@ def _process_split(
 
     Uses shuffle+select (sequential Arrow access) instead of random index
     look-ups, and parallelises JPEG writes across ``num_workers`` threads.
+    Each worker decodes only its own row so peak RAM stays proportional to
+    num_workers rather than the full sample count.
     """
     n = max(1, int(len(dataset_split) * sample_ratio))
-    # shuffle then select keeps Arrow reads sequential
     subset = dataset_split.shuffle(seed=seed).select(range(n))
 
+    # Pass the dataset + index, not the decoded sample.
     tasks: list[dict] = []
     work = [
-        (i, subset[i], images_dir, f"{filename_prefix}_{split_name}_{i}", split_name)
+        (i, subset, images_dir, f"{filename_prefix}_{split_name}_{i}", split_name)
         for i in range(n)
     ]
     with ThreadPoolExecutor(max_workers=num_workers) as pool:
@@ -123,6 +134,17 @@ def download_and_prepare_cord(
     all_train_samples: list[dict] = []
     all_val_samples: list[dict] = []
 
+    # Seed assignment per version and split:
+    #   v1: train=seed,       validation=seed+10,  test=seed+20
+    #   v2: train=seed+100,   validation=seed+110, test=seed+120
+    #
+    # NOTE: these seeds differ from the original sequential implementation
+    # (v1: seed/seed+1000/seed+2000, v2: seed+2000/seed+2000/seed+3000 — the
+    # duplicate seed+2000 for v2 train and v1 test was a pre-existing bug).
+    # If training data was already prepared with the old script, re-running
+    # this version will produce a different sample selection. Pin the dataset
+    # to a snapshot or keep the old seeds if reproducibility across runs is
+    # required.
     versions: list[tuple[str, str, int]] = []
     if include_v1:
         versions.append(("naver-clova-ix/cord-v1", "cord_v1", seed))

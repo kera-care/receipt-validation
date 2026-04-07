@@ -33,14 +33,24 @@ import structlog
 
 logger = structlog.get_logger(__name__)
 
+
 def _save_coco_sample(
     args: tuple[int, object, Path, str, object],
 ) -> dict:
-    """Save a single COCO sample as JPEG and return its task entry."""
-    i, sample, images_dir, filename, category_int2str = args
+    """Fetch one row from the Arrow dataset, save as JPEG, return task entry.
+
+    TODO: _save_coco_sample and prepare_cord._save_sample are nearly identical
+    (RGB convert → JPEG save → return dict). Unify into a shared helper in a
+    follow-up refactor.
+    """
+    i, subset, images_dir, filename, category_int2str = args
+    sample = subset[i]  # decode only this row, inside the worker thread
     image = sample["image"]
     image_path = images_dir / filename
     if not image_path.exists():
+        # quality=90 (down from the original 95) — intentional trade-off:
+        # ~20-30% smaller files with no visually perceptible difference at
+        # this resolution. Update both scripts together if you want to change it.
         image.convert("RGB").save(image_path, "JPEG", quality=90)
     objects = sample.get("objects") or {}
     category_ids = objects.get("category") or []
@@ -60,15 +70,35 @@ def _process_split(
     """Shuffle+select (sequential Arrow reads) then parallel JPEG saves."""
     n = min(n_samples, len(dataset_split))
     subset = dataset_split.shuffle(seed=seed).select(range(n))
+    # Pass the dataset + index, not the decoded sample, so each worker
+    # decodes only its own row and peak RAM stays proportional to num_workers.
     work = [
-        (i, subset[i], images_dir, f"{filename_prefix}_{i}.jpg", category_int2str)
+        (i, subset, images_dir, f"{filename_prefix}_{i}.jpg", category_int2str)
         for i in range(n)
     ]
     results: list[dict] = []
+    failures = 0
     with ThreadPoolExecutor(max_workers=num_workers) as pool:
         futures = {pool.submit(_save_coco_sample, item): item for item in work}
         for fut in tqdm(as_completed(futures), total=n, desc=f"Processing {filename_prefix}"):
-            results.append(fut.result())
+            try:
+                results.append(fut.result())
+            except Exception as exc:
+                failed_item = futures[fut]
+                logger.error(
+                    "sample_save_failed",
+                    index=failed_item[0],
+                    filename=failed_item[3],
+                    error=str(exc),
+                )
+                failures += 1
+    if failures:
+        logger.warning(
+            "split_completed_with_failures",
+            prefix=filename_prefix,
+            saved=len(results),
+            failed=failures,
+        )
     return results
 
 
