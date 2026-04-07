@@ -374,6 +374,7 @@ def get_args():
         required=True,
         help="Local directory to save downloaded images.",
     )
+
     return parser.parse_args()
 
 

@@ -53,9 +53,6 @@ echo "Downloading production prescription dataset..."
 prescription_images_dir="${data_directory}/images/prod-prescriptions"
 mkdir -p "$prescription_images_dir"
 
-receipt_images_dir="${data_directory}/images/prod-receipts"
-mkdir -p "$receipt_images_dir"
-
 data_directory="${mount_point}/vision-llm-finetune-data"
 doclaynet_dataset_dir="${data_directory}/data/DocLayNet"
 mkdir -p "$doclaynet_dataset_dir"
