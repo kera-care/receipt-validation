@@ -1,16 +1,21 @@
-# CLAUDE.md — GLM-OCR Fine-Tune
+# CLAUDE.md — GLM-OCR Fine-Tune for Receipt Validation
 
 ## Project Overview
 
-This repository fine-tunes [zai-org/GLM-OCR](https://huggingface.co/zai-org/GLM-OCR) for **multi-task prescription document understanding** at [Kera](https://kera.health):
+This repository fine-tunes [zai-org/GLM-OCR](https://huggingface.co/zai-org/GLM-OCR) for **receipt validation and amount extraction** at [Kera](https://kera.health).
 
-1. **Drug name extraction** — extract drug names from prescription images (original task)
-2. **Prescription validation** — classify `is_prescription`, `has_stamp`, `has_signature`, and extract `date` (multi-task extension)
+**Multi-task receipt understanding:**
+1. **Receipt classification** — `is_health_receipt` (boolean): Is this a health-related receipt?
+2. **Amount extraction** — `total_amount` (string): Total in CFA francs (handles Francophone formats like "15.000,50")
+3. **Date extraction** — `date` (ISO format YYYY-MM-DD)
+4. **Entity extraction** — `patient_name`, `provider_info` (pharmacy/clinic name & address)
+5. **Payment proof detection** — `proof_of_payment` (stamps, signatures, "PAYÉ", "ACQUITTÉ")
 
-- **Author**: Mitiku Yohannes (mitiku@kera.health)
+- **Author**:Jeremie Mabiala (jeremie.mabiala@kera.health) & Mitiku Yohannes (mitiku@kera.health) 
 - **Package**: `glm_ocr_finetune` (Python >= 3.12, Poetry >= 2.0)
 - **Model**: Vision-Language Model (vision encoder + merger + causal LM)
 - **Hardware target**: A100 80GB GPUs (single or multi-GPU via Accelerate/DDP)
+- **Domain**: Senegalese healthcare receipts, CFA franc (XOF) currency, French/English languages
 
 ---
 
@@ -22,37 +27,32 @@ glm-ocr-finetune/
 ├── configs/
 │   ├── accelerate_single_gpu.yaml        # Single GPU (bf16)
 │   └── accelerate_multi_gpu.yaml         # Multi-GPU DDP (NCCL, A100)
-├── resources/
-│   ├── drug_roots.json                   # 1,463 drugs → 5,889 variants (fuzzy matching index)
-│   └── drugs_exclusion.csv               # 2,635 drugs with binary exclusion flags
+├── sample/                               # Sample receipt images for local testing
 ├── scripts/
 │   ├── configure_validation_training.sh  # Full Azure VM data-prep + training orchestration
 │   ├── download_production_images.py     # Fetch annotation JSONL from GCS + download images
-│   ├── prepare_kera_prescription.py      # Convert raw Kera JSONL → train/val/test splits
+│   ├── prepare_kera_receipts.py          # Convert raw Kera JSONL → train/val/test splits
 │   ├── prepare_cord.py                   # Prepare CORD dataset (negative samples)
 │   ├── prepare_coco.py                   # Prepare COCO dataset (negative samples)
 │   ├── prepare_doclaynet.py              # Prepare DocLayNet dataset (negative samples)
-│   ├── merge_datasets.py                 # Merge all datasets into unified train/val JSON
-│   ├── run_training.sh                   # Drug extraction training launcher
-│   ├── run_training_validation.sh        # Prescription-validation training launcher
+│   ├── merge_datasets.py                 # Merge all sources → unified train/val JSON
+│   ├── run_training_validation.sh        # Receipt validation training launcher
 │   ├── run_inference.sh                  # Distributed inference orchestrator
-│   ├── run_evaluate.sh                   # Evaluation across fuzzy thresholds
-│   └── run_extract_drug_names.sh         # Extract unique drug names from task files
+│   ├── run_extract_receipt_stats.sh      # Extract dataset statistics
+│   └── test_local.py                     # Local inference test (MPS/CPU, 5 sample images)
 └── src/glm_ocr_finetune/
     ├── config.py                         # ModelConfig, LoRAConfig, DataConfig, TrainingConfig
-    ├── train.py                          # HF Trainer + Accelerate entry point (drug extraction)
-    ├── train_validation.py               # HF Trainer entry point (prescription validation)
+    ├── train_validation.py               # HF Trainer entry point (receipt validation)
     ├── inference.py                      # Distributed inference (torch.distributed)
-    ├── evaluate.py                       # Root-based + exclusion evaluation
-    ├── extract_drug_names.py             # Unique drug name extraction utility
-    ├── augment_matches.py                # Post-hoc fuzzy string matching strategies
+    ├── evaluate.py                       # Per-field evaluation (classification, amount, date, entities)
+    ├── extract_receipt_stats.py          # Dataset statistics utility
     ├── publish_model.py                  # HF Hub publishing utility
     ├── modelling/
     │   └── loader.py                     # Model & processor loading + configuration
     └── data/
-        ├── utils.py                      # normalize_drug_name, load_tasks, load_dataset
-        ├── prompts.py                    # Drug extraction prompt template
-        └── collator.py                   # DrugNameDataCollator (assistant-only masking)
+        ├── utils.py                      # normalize_amount, load_receipt_validation_datasets
+        ├── prompts.py                    # Receipt validation prompt templates
+        └── collator.py                   # PrescriptionValidationCollator (assistant-only masking)
 ```
 
 ---
@@ -76,22 +76,6 @@ glm-ocr-finetune/
 
 ## Data Formats
 
-### Drug extraction tasks (original)
-
-Task files are JSON arrays. Each task has:
-
-```json
-{
-  "transaction_id": "abc123",
-  "prescription_image_urls": ["relative/path/to/image.jpg"],
-  "verified_drug_names": ["Amoxicilline Arrow - 1g, b/30", "Doliprane - 500mg, b/16"]
-}
-```
-
-Drug name normalization (`normalize_drug_name`): lowercase → strip whitespace → NFKD Unicode → remove accents.
-
-The model receives **user message** (images + prompt) and outputs **assistant message** (JSON `{"drug_names": [...]}`).
-
 ### Kera production annotations (raw JSONL)
 
 Raw annotation files fetched from GCS (one JSON per line):
@@ -99,32 +83,36 @@ Raw annotation files fetched from GCS (one JSON per line):
 ```json
 {
   "image_id":     "<uuid>",
-  "image_path":   "gs://<bucket>/coverage_images/...",
+  "image_path":   "gs://<bucket>/transaction_proof_images/...",
   "annotated_at": "2026-03-30T14:24:07Z",
   "fields": {
-    "is_prescription": true,
-    "drug_names":      ["DRUG A", "DRUG B"],
-    "has_stamp":       true,
-    "has_signature":   true,
-    "date":            "2025-09-20"
+    "is_health_receipt": true,
+    "total_amount":      15000.0,
+    "patient_name":      "Jeje ",
+    "provider_info":     "Pharmacie Centrale, Dakar",
+    "proof_of_payment":  "cachet PAYÉ",
+    "date":              "2026-02-05"
   }
 }
 ```
 
-### Prepared prescription tasks (after `prepare_kera_prescription.py`)
+The following attributes were not annoted:  `patient_name, provider_info, proof_of_payment`, so they can't be ignored in training by setting them to `Null`.
+
+### Prepared receipt tasks (after `prepare_kera_receipts.py`)
 
 Output JSONL written to `train.jsonl`, `validation.jsonl`, `test.jsonl`:
 
 ```json
 {
   "transaction_id":  "<uuid>",
-  "image_urls":      ["coverage_images/..."],
+  "image_urls":      ["transaction_proof_images/..."],
   "annotated_at":    "2026-03-30T14:24:07Z",
-  "drug_names":      ["DRUG A", "DRUG B"],
-  "is_prescription": true,
-  "has_stamp":       true,
-  "has_signature":   true,
-  "date":            "2025-09-20"
+  "is_health_receipt": true,
+  "total_amount":   "15000",
+  "patient_name":   "Jeje ",
+  "provider_info":  "Pharmacie Centrale, Dakar",
+  "proof_of_payment": "cachet PAYÉ",
+  "date":            "2026-02-05"
 }
 ```
 
@@ -136,8 +124,8 @@ Each record additionally has:
 
 ```json
 {
-  "image_paths": ["/absolute/path/to/coverage_images/..."],
-  "source":      "cord|coco|doclaynet|kera_prescription"
+  "image_paths": ["/absolute/path/to/transaction_proof_images/..."],
+  "source":      "cord|coco|doclaynet|kera_receipt"
 }
 ```
 
@@ -145,7 +133,7 @@ Each record additionally has:
 
 ## Multi-Task Data Preparation Pipeline
 
-The full pipeline is orchestrated by `scripts/configure_validation_training.sh` and runs on an Azure VM. CORD, COCO, and DocLayNet serve as **negative samples** (non-prescription documents) for the prescription validation task.
+The full pipeline is orchestrated by `scripts/configure_validation_training.sh` and runs on an Azure VM. CORD, COCO, and DocLayNet serve as **negative samples** (non-receipt documents) for the receipt validation task.
 
 ```
 GCS bucket (annotations + images)
@@ -154,23 +142,23 @@ GCS bucket (annotations + images)
 download_production_images.py    ← fetches annotation JSONL + images from GCS
         │
         ▼
-prepare_kera_prescription.py     ← JSONL → train.jsonl / validation.jsonl / test.jsonl
+prepare_kera_receipts.py         ← JSONL → train.jsonl / validation.jsonl / test.jsonl
 prepare_cord.py  /  prepare_coco.py  /  prepare_doclaynet.py  ← negative samples
         │
         ▼
 merge_datasets.py                ← merges all → train_tasks.json + val_tasks.json
         │
         ▼
-run_training_validation.sh       ← launches multi-task training
+run_training_validation.sh       ← launches receipt validation training
 ```
 
 ### Key environment variables
 
 | Variable | Required | Default | Description |
 |---|---|---|---|
-| `IMAGES_BUCKET_NAME` | **yes** | — | GCS bucket containing prescription images (e.g. `kera-production.appspot.com`) |
+| `IMAGES_BUCKET_NAME` | **yes** | — | GCS bucket containing receipt images (e.g. `kera-production.appspot.com`) |
 | `GCP_SA_KEY_PATH` | **yes** | — | Path to GCP service account JSON key (`secrets.json`) |
-| `ANNOTATIONS_GCS_PREFIX` | no | `annotated_image_data/prescriptions/v_20260402_013946/` | GCS prefix for annotation JSONL files |
+| `ANNOTATIONS_GCS_PREFIX` | no | `annotated_image_data/receipts/v_YYYYMMDD_HHMMSS/` | GCS prefix for annotation JSONL files |
 | `DATA_DIRECTORY` | no | `/mnt/datadrive/vision-llm-finetune-data` | Root data directory on the VM |
 
 ## Key Configurations (`src/glm_ocr_finetune/config.py`)
@@ -199,21 +187,7 @@ run_training_validation.sh       ← launches multi-task training
 
 ## Training Modes
 
-### Drug extraction (original)
-
-**LoRA (default, recommended)**:
-```bash
-USE_LORA=true NUM_GPUS=8 NUM_EPOCHS=20 IMAGES_ROOT_DIR=/path/to/images bash scripts/run_training.sh
-```
-
-**Full fine-tune**:
-```bash
-USE_LORA=false NUM_GPUS=8 NUM_EPOCHS=20 IMAGES_ROOT_DIR=/path/to/images bash scripts/run_training.sh
-```
-
-After LoRA training the adapter is merged and saved as `final_model_merged` for dependency-free inference.
-
-### Prescription validation (multi-task)
+### Receipt validation (LoRA, recommended)
 
 Uses `train_validation.py` and the merged dataset produced by the data pipeline. Launched via:
 
@@ -228,23 +202,30 @@ IMAGES_BUCKET_NAME=kera-production.appspot.com \
   bash scripts/configure_validation_training.sh
 ```
 
+After LoRA training the adapter is merged and saved as `final_model_merged` for dependency-free inference.
+
 ---
 
 ## Inference
 
 Distributed inference uses `torch.distributed` + `DistributedSampler`. Each GPU rank writes a partial shard to `.glm_inference_tmp/shard_<rank>.json`; rank 0 merges and deduplicates by `transaction_id`.
 
-Model outputs are repaired with `json_repair` before parsing (handles malformed JSON). Falls back to empty drug list on parse failure.
+Model outputs are repaired with `json_repair` before parsing (handles malformed JSON). Falls back to null fields on parse failure.
 
 ---
 
 ## Evaluation Modes
 
-Three modes in `evaluate.py`:
+Six evaluation tasks in `evaluate.py`:
 
-1. **Exact match** — strict character-level match after normalization
-2. **Root-based fuzzy matching** (primary) — resolves drug names against `drug_roots.json` variants via `thefuzz.ratio()`. Labels use threshold 0.5; predictions use variable thresholds (0.5–0.9). Set-based precision/recall/F1.
-3. **Exclusion detection** — binary classification on whether resolved drugs appear in `drugs_exclusion.csv`
+1. **Receipt classification** (`is_health_receipt`) — binary classification accuracy, precision, recall, F1
+2. **Amount extraction** (`total_amount`) — exact match + 1% tolerance match (handles minor OCR errors in CFA amounts)
+3. **Date extraction** (`date`) — ISO format match (YYYY-MM-DD)
+4. **Patient name presence** (`patient_name`) — binary detection (present vs null)
+5. **Provider info presence** (`provider_info`) — binary detection (pharmacy/clinic name extracted)
+6. **Proof of payment detection** (`proof_of_payment`) — binary detection (stamps, signatures, "PAYÉ", "ACQUITTÉ")
+
+Output: `receipt_evaluation_results.json` with aggregate metrics + first 50 amount errors for manual review.
 
 ---
 
@@ -288,17 +269,17 @@ When reviewing any PR in this repo, check all of the following:
 
 ### Security
 - [ ] No credentials, HF tokens, or internal paths hardcoded — use `os.getenv` or CLI args
-- [ ] No sensitive data (patient info, drug lists beyond public resources) logged or exposed
+- [ ] No sensitive data (patient info, receipt details beyond test samples) logged or exposed
 - [ ] Inputs validated at system boundaries (task file loading, image path resolution)
 - [ ] No `assert` used outside tests for security-critical checks
 
 ### ML Correctness
-- [ ] Assistant-only masking preserved in `DrugNameDataCollator` (user/image tokens are masked from loss)
+- [ ] Assistant-only masking preserved in `PrescriptionValidationCollator` (user/image tokens are masked from loss)
 - [ ] LoRA target modules consistent with the 8 learning objectives documented in `LoRAConfig`
 - [ ] `bf16 = True` and `attn_implementation = "flash_attention_2"` preserved
 - [ ] `DistributedSampler` used in inference (not default DataLoader sampler) for multi-GPU
-- [ ] Drug name normalization (`normalize_drug_name`) applied consistently across train/inference/evaluate
-- [ ] Fuzzy matching threshold logic: labels use 0.5, predictions use variable threshold (0.5–0.9)
+- [ ] Amount normalization (`normalize_amount`) applied consistently across train/inference/evaluate
+- [ ] Amount normalization handles CFA franc formats ("15.000,50", "FCFA", thousand separators, commas)
 - [ ] Shard merging in inference deduplicates by `transaction_id`
 - [ ] Multi-task pipeline: `IMAGES_BUCKET_NAME` read from env var, never hardcoded
 - [ ] Multi-task pipeline: `image_paths` (absolute) added correctly in `merge_datasets.py`; `image_urls` (relative) preserved
@@ -331,9 +312,9 @@ When reviewing any PR in this repo, check all of the following:
 ### Feature PRs
 - Scope: new capability added to an existing pipeline stage (e.g., new evaluation mode, new augmentation)
 - New config fields go in the appropriate dataclass in `config.py` with sensible defaults (must not break existing runs)
-- New resources (drug lists, index files) go under `resources/`
+- New resources go under `resources/`
 - Shell scripts updated to expose new flags via env vars
-- Title format: `feat: <short description>` (e.g., `feat: add jaro-winkler fuzzy matching strategy`)
+- Title format: `feat: <short description>` (e.g., `feat: add fuzzy date matching with tolerance`)
 
 ### Chore PRs
 - Scope: dependency updates, CI changes, refactoring without behavior change
@@ -369,15 +350,13 @@ Bash(gh issue create:*)
 poetry install
 poetry run pip install flash-attn --no-build-isolation
 
-# Train (LoRA, 8 GPUs) — drug extraction
-NUM_GPUS=8 NUM_EPOCHS=20 USE_LORA=true \
-  IMAGES_ROOT_DIR=/data/images \
-  bash scripts/run_training.sh
-
-# Full multi-task data-prep + validation training (Azure VM)
+# Train (LoRA, 8 GPUs) — receipt validation
 IMAGES_BUCKET_NAME=kera-production.appspot.com \
   GCP_SA_KEY_PATH=/path/to/secrets.json \
   bash scripts/configure_validation_training.sh
+
+# Or just training (assumes data already prepared)
+bash scripts/run_training_validation.sh
 
 # Inference
 MODEL_PATH=outputs/glm-ocr-finetune-lora-20-epochs/final_model_merged \
@@ -390,7 +369,7 @@ MODEL_PATH=outputs/glm-ocr-finetune-lora-20-epochs/final_model \
 # Publish to HF Hub
 poetry run python -m glm_ocr_finetune.publish_model \
   --model_path outputs/glm-ocr-finetune-lora-20-epochs/final_model \
-  --hub_model_id KeraCare/drug_name_extraction_v2x0 \
+  --hub_model_id KeraCare/receipt_validation_v1x0 \
   --token $HF_TOKEN
 ```
 
@@ -402,5 +381,5 @@ poetry run python -m glm_ocr_finetune.publish_model \
 - **Vision-language merger**: `merger.proj` (1536→1536 cross-modal projection)
 - **Language model**: 16 layers, attention `q_proj`/`k_proj`/`v_proj`/`o_proj`, MLP `gate_up_proj`/`down_proj`
 - LoRA rank 64 / alpha 128 gives a scaling factor of 2.0 — do not change without re-evaluating convergence
-- `max_length = 4096` tokens covers multi-image prescriptions; increasing this has VRAM implications
+- `max_length = 4096` tokens covers multi-image receipts; increasing this has VRAM implications
 - Batch size 2 per device × gradient accumulation 8 × N GPUs = effective batch size of 16N

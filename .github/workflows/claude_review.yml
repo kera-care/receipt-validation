@@ -31,7 +31,7 @@ jobs:
             PR NUMBER: ${{ github.event.pull_request.number }}
 
             You are reviewing a PR on `glm-ocr-finetune` — a production ML pipeline that
-            fine-tunes GLM-OCR for drug name extraction from prescription images.
+            fine-tunes GLM-OCR for receipt validation and amount extraction from healthcare receipts.
             Refer to CLAUDE.md for full project context and conventions.
 
             Review the PR diff with the following focus areas:
@@ -47,17 +47,21 @@ jobs:
 
             2. **Security**
                - No credentials, HF tokens, or internal paths hardcoded — use `os.getenv` or CLI args
-               - No sensitive data (patient info) logged or exposed in error messages
+               - No sensitive data (patient info, receipt details beyond test samples) logged or exposed
                - Inputs validated at system boundaries (task file loading, image path resolution)
                - No `assert` used outside tests for security-critical checks
 
             3. **ML Correctness**
-               - Assistant-only masking preserved in `DrugNameDataCollator`
+               - Assistant-only masking preserved in `PrescriptionValidationCollator`
                - LoRA target modules consistent with the 8 learning objectives in `LoRAConfig`
                - `bf16 = True` and `attn_implementation = "flash_attention_2"` preserved
                - `DistributedSampler` used in multi-GPU inference paths
-               - Drug name normalization applied consistently across train/inference/evaluate
-               - Fuzzy matching threshold logic: labels 0.5, predictions variable (0.5–0.9)
+               - Amount normalization (`normalize_amount`) applied consistently across train/inference/evaluate
+               - Amount normalization handles CFA franc formats ("15.000,50", "FCFA", thousand separators, commas)
+               - Multi-task pipeline: `IMAGES_BUCKET_NAME` read from env var, never hardcoded
+               - Multi-task pipeline: `image_paths` (absolute) added correctly in `merge_datasets.py`
+               - Inference output nests ground-truth under a `"labels"` key (required by `evaluate.py`)
+               - Shard merging in inference deduplicates by `transaction_id`
 
             4. **API & Interface Consistency**
                - New CLI arguments have defaults and are documented
