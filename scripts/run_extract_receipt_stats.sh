@@ -2,21 +2,23 @@
 set -euo pipefail
 
 # ──────────────────────────────────────────────────────────────────────
-# Extract all unique normalized drug names from task files
+# Extract receipt dataset statistics
 # ──────────────────────────────────────────────────────────────────────
 
-TASK_FILES="${TASK_FILES:-resources/sample-datasets/train_tasks.json resources/sample-datasets/dev_tasks.json resources/sample-datasets/test_tasks.json}"
-MODEL_PATH="${MODEL_PATH:-outputs/glm-ocr-finetune-20-epochs/final_model}"
-OUTPUT_PATH="${OUTPUT_PATH:-$(dirname "${MODEL_PATH}")/all_drug_names.json}"
+TRAIN_TASKS="${TRAIN_TASKS:-dataset/train_tasks.json}"
+VAL_TASKS="${VAL_TASKS:-dataset/val_tasks.json}"
+OUTPUT_PATH="${OUTPUT_PATH:-outputs/receipt_stats.json}"
 
 echo "============================================="
-echo "  Extract Drug Names"
+echo "  Receipt Statistics Extraction"
 echo "============================================="
-echo "  Task files:  ${TASK_FILES}"
-echo "  Output:      ${OUTPUT_PATH}"
+echo "  Task files:       ${TRAIN_TASKS} ${VAL_TASKS}"
+echo "  Output:           ${OUTPUT_PATH}"
 echo "============================================="
 
-# shellcheck disable=SC2086
-poetry run python -m glm_ocr_finetune.extract_drug_names \
-    --task_files ${TASK_FILES} \
+poetry run python -m glm_ocr_finetune.extract_receipt_stats \
+    --task_files "${TRAIN_TASKS}" "${VAL_TASKS}" \
     --output_path "${OUTPUT_PATH}"
+
+echo ""
+echo "Statistics saved to: ${OUTPUT_PATH}"

@@ -19,37 +19,37 @@ class LoRAConfig:
     """LoRA adapter configuration for parameter-efficient fine-tuning.
 
     Objectives:
-    1. Handwriting diversity: capture varied handwriting styles and legibility levels
+    1. Handwriting / print diversity: capture varied document layouts and fonts
     2. Background noise: robustly extract text features despite visual clutter
     3. Orientations / zoom levels: handle different text orientations and scales
-    4. Blurriness: adapt to varying image sharpness and quality
-    5. Drug name vocabulary: learn domain-specific drug names and terminology
-    6. Label misspellings: correct common OCR-induced misspellings in drug names
-    7. Image misspellings: leverage visual context to resolve ambiguous or misspelled text
-    8. OCR artifacts: compensate for typical OCR errors and artifacts in both vision and language components
-
+    4. Blurriness / scan quality: adapt to varying image sharpness and quality
+    5. Receipt vocabulary: learn domain-specific terms (amounts, dates, provider names)
+    6. Amount parsing: extract and normalise CFA franc totals in varied formats
+    7. Cross-modal alignment: link visual stamps/signatures to structured fields
+    8. OCR artifacts: compensate for typical OCR errors in both vision and language components
 
     Target modules are selected to address all 8 learning objectives:
 
     Vision encoder attention (24 blocks)  — objectives 1-4, 8
-        1. Handwriting diversity           → spatial attention patterns
+        1. Layout / font diversity         → spatial attention patterns
         2. Background noise                → noise-robust feature extraction
         3. Orientations / zoom levels      → spatial-transform attention
-        4. Blurriness                      → adaptive sharpness features
+        4. Scan quality                    → adaptive sharpness features
         8. OCR artifacts                   → robust visual encoding
 
     Vision-language merger                 — objectives 7, 8
-        7. Image misspellings              → cross-modal alignment
+        7. Cross-modal alignment           → stamp/signature → structured fields
         8. OCR artifacts                   → vision→language bridge
 
     Language model self-attention (16 layers) — objectives 5-8
-        5. Drug name vocabulary            → token-level drug name knowledge
-        6. Label misspellings              → contextual spelling correction
-        7. Image misspellings              → cross-attend to visual context
+        5. Receipt vocabulary              → token-level domain knowledge
+        6. Amount parsing                  → contextual numeral normalisation
+        7. Cross-modal alignment           → cross-attend to visual context
         8. OCR artifacts                   → language-side compensation
 
-    Language model MLP (16 layers)         — objective 5
-        5. Drug name vocabulary            → factual / lexical knowledge
+    Language model MLP (16 layers)         — objectives 5, 6
+        5. Receipt vocabulary              → factual / lexical knowledge
+        6. Amount parsing                  → numeral format generalisation
     """
     rank: int = 64
     alpha: int = 128                        # alpha = 2 × rank is a common default
@@ -93,7 +93,7 @@ class DataConfig:
 class TrainingConfig:
     """Training hyperparameters tuned for full fine-tune on A100s."""
     output_dir: str = "outputs/glm-ocr-finetune"
-    run_name: str = "glm-ocr-drug-extraction"
+    run_name: str = "glm-ocr-receipt-validation"
 
     # --- Epochs & steps ---
     num_train_epochs: int = 3

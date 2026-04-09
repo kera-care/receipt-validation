@@ -1,1 +1,0 @@
-The codes in this folder will be updated and adapted for receipt validation.
