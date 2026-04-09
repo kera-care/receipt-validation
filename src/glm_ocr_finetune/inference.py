@@ -7,9 +7,8 @@ Each rank writes its own partial results; rank 0 merges them at the end.
 Launch with Accelerate:
     accelerate launch --config_file configs/accelerate_multi_gpu.yaml \
         -m glm_ocr_finetune.inference \
-        --model_path outputs/glm-ocr-finetune/final_model \
-        --images_root_dir /path/to/images \
-        --dataset_path dataset/dev_tasks.json \
+        --model_path outputs/glm-ocr-receipt-finetune/final_model \
+        --dataset_path dataset/val_tasks.json \
         --output_path outputs/inference_results.json
 """
 
@@ -26,8 +25,8 @@ from tqdm import tqdm
 from json_repair import repair_json
 
 from glm_ocr_finetune.modelling.loader import load_base_model
-from glm_ocr_finetune.data.utils import load_drug_name_extraction_dataset, normalize_drug_name
-from glm_ocr_finetune.data.prompts import DRUG_NAME_EXTRACTION_PROMPTS
+from glm_ocr_finetune.data.utils import load_receipt_validation_datasets, normalize_amount
+from glm_ocr_finetune.data.prompts import RECEIPT_VALIDATION_PROMPTS
 
 logger = structlog.get_logger(__name__)
 
@@ -45,8 +44,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--attn_implementation", type=str, default="flash_attention_2")
 
     # Data
-    parser.add_argument("--dataset_path", type=str, required=True, help="Path to tasks JSON (e.g. dev_tasks.json)")
-    parser.add_argument("--images_root_dir", type=str, required=True)
+    parser.add_argument("--dataset_path", type=str, required=True, help="Path to tasks JSON (e.g. val_tasks.json)")
     parser.add_argument("--validate_image_paths", action="store_true", default=False)
     parser.add_argument("--no_validate_image_paths", action="store_false", dest="validate_image_paths")
     parser.add_argument("--skip_missing_images", action="store_true", default=True)
@@ -96,13 +94,16 @@ def collate_for_inference(batch: list[dict], processor, prompt: str):
     for task in batch:
         messages = build_inference_messages(task, prompt)
         messages_list.append(messages)
-        verified_drug_names = task.get("verified_drug_names", [])
-        verified_drug_names = set([normalize_drug_name(name) for name in verified_drug_names])
-        verified_drug_names = sorted(verified_drug_names)
         metadata.append({
             "transaction_id": task["transaction_id"],
-            "verified_drug_names": verified_drug_names,
-            "prescription_image_urls": task["prescription_image_urls"],
+            "labels": {
+                "is_health_receipt": task.get("is_health_receipt"),
+                "total_amount": normalize_amount(task.get("total_amount")),
+                "date": task.get("date"),
+                "patient_name": task.get("patient_name"),
+                "provider_info": task.get("provider_info"),
+                "proof_of_payment": task.get("proof_of_payment"),
+            },
         })
 
     inputs = processor.apply_chat_template(
@@ -160,9 +161,8 @@ def run_inference(args):
     # ------------------------------------------------------------------ #
     # 2. Load dataset
     # ------------------------------------------------------------------ #
-    dataset = load_drug_name_extraction_dataset(
-        dataset_path=args.dataset_path,
-        images_root_dir=args.images_root_dir,
+    dataset = load_receipt_validation_datasets(
+        tasks_path=args.dataset_path,
         validate_image_paths=args.validate_image_paths,
         skip_missing_images=args.skip_missing_images,
     )
@@ -195,7 +195,7 @@ def run_inference(args):
         pin_memory=False,
     )
 
-    prompt = DRUG_NAME_EXTRACTION_PROMPTS["short"]
+    prompt = RECEIPT_VALIDATION_PROMPTS["short"]
 
     # ------------------------------------------------------------------ #
     # 4. Run generation
@@ -229,7 +229,14 @@ def run_inference(args):
             try:
                 parsed = json.loads(repair_json(generated_text))
             except json.JSONDecodeError:
-                parsed = {"drug_names": []}  # fallback to empty list if parsing fails
+                parsed = {
+                    "is_health_receipt": None,
+                    "total_amount": None,
+                    "date": None,
+                    "patient_name": None,
+                    "provider_info": None,
+                    "proof_of_payment": None,   
+                   }  # fallback to empty list if parsing fails
 
             result = {
                 **meta,

@@ -50,8 +50,8 @@ echo "Set HF_HOME to: $HF_HOME"
 
 echo "Downloading production prescription dataset..."
 
-prescription_images_dir="${data_directory}/images/prod-prescriptions"
-mkdir -p "$prescription_images_dir"
+receipt_images_dir="${data_directory}/images/prod-receipts"
+mkdir -p "$receipt_images_dir"
 
 data_directory="${mount_point}/vision-llm-finetune-data"
 doclaynet_dataset_dir="${data_directory}/data/DocLayNet"
@@ -65,31 +65,31 @@ mkdir -p "$cord_dataset_dir"
 coco_dataset_dir="${data_directory}/data/COCO"
 mkdir -p "$coco_dataset_dir"
 
-prescription_dataset_dir="${data_directory}/data/prescription_dataset"
-mkdir -p "$prescription_dataset_dir"
+receipt_dataset_dir="${data_directory}/data/receipt_dataset"
+mkdir -p "$receipt_dataset_dir"
 
 # Annotation JSONL files are fetched directly from GCS by download_production_images.py.
 # Override ANNOTATIONS_GCS_PREFIX to pin a specific dataset version.
-annotations_gcs_prefix="${ANNOTATIONS_GCS_PREFIX:-annotated_image_data/prescriptions/v_20260402_013946/}"
-annotations_local_dir="${data_directory}/annotations/prescriptions"
+annotations_gcs_prefix="${ANNOTATIONS_GCS_PREFIX:-annotated_image_data/receipts/v_YYYYMMDD_HHMMSS/}"
+annotations_local_dir="${data_directory}/annotations/receipts"
 mkdir -p "$annotations_local_dir"
 
-echo "Downloading production prescription images and annotation files..."
+echo "Downloading production receipt images and annotation files..."
 poetry run python scripts/download_production_images.py \
     --annotations_gcs_prefix "$annotations_gcs_prefix" \
     --annotations_local_dir "$annotations_local_dir" \
     --secrets_path secrets.json \
-    --images_output_dir "$prescription_images_dir"
+    --images_output_dir "$receipt_images_dir"
 
-echo "Preparing Kera prescription dataset..."
+echo "Preparing Kera receipt dataset..."
 test_arg=""
 if [ -f "${annotations_local_dir}/test.jsonl" ]; then
     test_arg="--test_jsonl ${annotations_local_dir}/test.jsonl"
 fi
-poetry run python scripts/prepare_kera_prescription.py \
+poetry run python scripts/prepare_kera_receipts.py \
     --train_jsonl "${annotations_local_dir}/train.jsonl" \
     $test_arg \
-    --output_dir "$prescription_dataset_dir" \
+    --output_dir "$receipt_dataset_dir" \
     --val_ratio 0.1 \
     --seed 42
 
@@ -119,8 +119,8 @@ poetry run python scripts/merge_datasets.py \
     --cord_dir "$cord_dataset_dir" \
     --coco_dir "$coco_dataset_dir" \
     --doclaynet_dir "$doclaynet_dataset_dir" \
-    --kera_prescription_dir "$prescription_images_dir" \
-    --kera_prescription_splits_dir "$prescription_dataset_dir" \
-    --output_dir "${data_directory}/prescription_validation/merged_dataset"
+    --kera_receipt_dir "$receipt_images_dir" \
+    --kera_receipt_splits_dir "$receipt_dataset_dir" \
+    --output_dir "${data_directory}/receipt_validation/merged_dataset"
 echo "Configuration and setup complete."
 

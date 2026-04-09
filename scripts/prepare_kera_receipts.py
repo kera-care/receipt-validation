@@ -1,5 +1,5 @@
 """
-Prepare Kera production prescription JSONL data for training.
+Prepare Kera production receipt JSONL data for training.
 
 Input format (one JSON object per line):
     {
@@ -8,13 +8,16 @@ Input format (one JSON object per line):
         "annotated_at": "2026-03-30T14:24:07Z",
         "annotator_id": null,
         "fields": {
-            "is_prescription": true,
-            "drug_names":      ["DRUG A", "DRUG B"],
-            "has_stamp":       true,
-            "has_signature":   true,
-            "date":            "2025-09-20",
-            "user_info":       null,
-            "doctor_info":     null
+            "is_health_receipt": true,
+            "total_amount":     15000.0,
+            itemized_list:     [
+            {
+            "item": "item1",
+            "unit_price": 5000.0,
+            "qty": 2
+            },
+            ]
+            "date":"2025-09-20",
         }
     }
 
@@ -23,10 +26,12 @@ Output format (one JSON object per line):
         "transaction_id": "<uuid>",
         "image_urls":     ["coverage_images/..."],   # GCS path relative to bucket root
         "annotated_at":   "2026-03-30T14:24:07Z",
-        "drug_names":     ["DRUG A", "DRUG B"],
-        "is_prescription": true,
-        "has_stamp":       true,
-        "has_signature":   true,
+        "is_health_receipt": true,
+        "total_amount":   "15000",  # converted to string for consistency
+
+        "patient_name":   null,
+        "provider_info":  null,
+        "proof_of_payment": null,
         "date":            "2025-09-20"
     }
 
@@ -89,17 +94,29 @@ def _convert_record(record: dict[str, Any]) -> dict[str, Any]:
         Task dict in the output format.
     """
     fields: dict[str, Any] = record.get("fields") or {}
+
+    # gcs_url is as follow : "gs://kera-production.appspot.com/transaction_proof_images/5bef30a8-..."
     gcs_url: str = record.get("image_path", "")
+
+    # relative_path is as follow:  "transaction_proof_images/5bef30a8-..."
     relative_path = _gcs_url_to_relative_path(gcs_url)
+
+    # total_amount comes as a float (15000.0), convert to clean string
+    raw_amount = fields.get("total_amount")
+    if isinstance(raw_amount, (int, float)):
+        amount_str = str(int(raw_amount)) if raw_amount == int(raw_amount) else str(raw_amount)
+    else:
+        amount_str = raw_amount  # could be None or already a string
 
     return {
         "transaction_id": record.get("image_id", ""),
         "image_urls": [relative_path],
         "annotated_at": record.get("annotated_at"),
-        "drug_names": fields.get("drug_names") or [],
-        "is_prescription": fields.get("is_prescription"),
-        "has_stamp": fields.get("has_stamp"),
-        "has_signature": fields.get("has_signature"),
+        "is_health_receipt": fields.get("is_health_receipt", False),
+        "total_amount": amount_str,
+        "patient_name": fields.get("patient_name"),
+        "provider_info": fields.get("provider_info"),
+        "proof_of_payment": fields.get("proof_of_payment"),
         "date": fields.get("date"),
     }
 

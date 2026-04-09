@@ -1,12 +1,12 @@
 """
-Full fine-tuning script for zai-org/GLM-OCR on drug name extraction.
+Fine-tuning script for zai-org/GLM-OCR on receipt validation and total amount extraction.
 
 Launch with Accelerate:
     accelerate launch --config_file configs/accelerate_config.yaml \
-        -m glm_ocr_finetune.train \
+        -m glm_ocr_finetune.train_validation \
         [--train_dataset_path dataset/train_tasks.json] \
-        [--eval_dataset_path dataset/dev_tasks.json] \
-        [--output_dir outputs/glm-ocr-finetune]
+        [--eval_dataset_path dataset/val_tasks.json] \
+        [--output_dir outputs/glm-ocr-receipt-finetune]
 """
 
 import argparse
@@ -18,14 +18,14 @@ from transformers.trainer_utils import get_last_checkpoint
 
 from glm_ocr_finetune.config import ModelConfig, DataConfig, TrainingConfig, LoRAConfig
 from glm_ocr_finetune.modelling.loader import load_base_model
-from glm_ocr_finetune.data.utils import load_prescription_validation_datasets
+from glm_ocr_finetune.data.utils import load_receipt_validation_datasets
 from glm_ocr_finetune.data.collator import PrescriptionValidationCollator, get_ocr_friendly_augmentation
 
 logger = structlog.get_logger(__name__)
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Fine-tune GLM-OCR for drug name extraction")
+    parser = argparse.ArgumentParser(description="Fine-tune GLM-OCR for receipt validation and total amount extraction")
 
     # --- Model ---
     parser.add_argument("--model_path", type=str, default=ModelConfig.model_path)
@@ -166,14 +166,14 @@ def main():
     # ------------------------------------------------------------------ #
     # 2. Load datasets
     # ------------------------------------------------------------------ #
-    train_dataset = load_prescription_validation_datasets(
+    train_dataset = load_receipt_validation_datasets(
         tasks_path=args.train_dataset_path,
         validate_image_paths=args.validate_image_paths,
         skip_missing_images=True,  # always skip missing images during training
     )
     eval_dataset = None
     if args.eval_dataset_path and os.path.exists(args.eval_dataset_path):
-        eval_dataset = load_prescription_validation_datasets(
+        eval_dataset = load_receipt_validation_datasets(
             tasks_path=args.eval_dataset_path,
             validate_image_paths=args.validate_image_paths,
             skip_missing_images=True

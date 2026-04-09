@@ -186,13 +186,13 @@ def load_doclaynet(doclaynet_dir: Path | None, split: str) -> list[dict[str, Any
     )
 
 
-def load_kera_prescriptions(
+def load_kera_receipts(
     splits_dir: Path | None,
     images_dir: Path | None,
     split: str,
 ) -> list[dict[str, Any]]:
     """
-    Load Kera prescription tasks produced by prepare_kera_prescription.py.
+    Load Kera receipts tasks produced by prepare_kera_receipts.py.
 
     Output files from that script are JSONL and named:
         train.jsonl, validation.jsonl, test.jsonl
@@ -202,13 +202,13 @@ def load_kera_prescriptions(
 
     Args:
         splits_dir:  Directory that contains train.jsonl / validation.jsonl.
-        images_dir:  Directory that contains the prescription images.
+        images_dir:  Directory that contains the receipts images.
         split:       "train" or "val".
     """
     if splits_dir is None or images_dir is None:
         return []
 
-    # Map merge-pipeline split names to the filenames written by prepare_kera_prescription.py
+    # Map merge-pipeline split names to the filenames written by prepare_kera_receipts.py
     filename_map = {"train": "train.jsonl", "val": "validation.jsonl"}
     filename = filename_map.get(split, f"{split}.jsonl")
     task_file = splits_dir / filename
@@ -216,7 +216,7 @@ def load_kera_prescriptions(
     tasks = _load_jsonl_file(task_file)
     log.info(
         "loaded_split",
-        source="kera_prescription",
+        source="kera_receipt",
         split=split,
         count=len(tasks),
     )
@@ -224,7 +224,7 @@ def load_kera_prescriptions(
         tasks,
         images_dir=images_dir,
         image_urls_key="image_urls",
-        source_label="kera_prescription",
+        source_label="kera_receipt",
     )
 
 
@@ -236,8 +236,8 @@ def merge_and_write(
     cord_dir: Path | None,
     coco_dir: Path | None,
     doclaynet_dir: Path | None,
-    kera_prescription_splits_dir: Path | None,
-    kera_prescription_dir: Path | None,
+    kera_receipt_splits_dir: Path | None,
+    kera_receipt_dir: Path | None,
     output_dir: Path,
 ) -> None:
     """
@@ -247,8 +247,8 @@ def merge_and_write(
         cord_dir:                        Root of CORD dataset (or None to skip).
         coco_dir:                        Root of COCO dataset (or None to skip).
         doclaynet_dir:                   Root of DocLayNet dataset (or None to skip).
-        kera_prescription_splits_dir:    Directory with train/val task JSONs for Kera prescriptions.
-        kera_prescription_dir:           Directory containing Kera prescription images.
+        kera_receipt_splits_dir:         Directory with train/val task JSONs for Kera receipt.
+        kera_receipt_dir:                Directory containing Kera receipts images.
         output_dir:                      Destination for merged train/val task files.
     """
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -261,9 +261,9 @@ def merge_and_write(
         merged.extend(load_coco(coco_dir, split))
         merged.extend(load_doclaynet(doclaynet_dir, split))
         merged.extend(
-            load_kera_prescriptions(
-                kera_prescription_splits_dir,
-                kera_prescription_dir,
+            load_kera_receipts(
+                kera_receipt_splits_dir,
+                kera_receipt_dir,
                 split,
             )
         )
@@ -309,16 +309,16 @@ def main() -> None:
         help="Root directory of the prepared DocLayNet dataset (contains images/ and tasks/)",
     )
     parser.add_argument(
-        "--kera_prescription_dir",
+        "--kera_receipt_dir",
         type=str,
         default=None,
-        help="Directory containing Kera prescription images",
+        help="Directory containing Kera receipt images",
     )
     parser.add_argument(
-        "--kera_prescription_splits_dir",
+        "--kera_receipt_splits_dir",
         type=str,
         default=None,
-        help="Directory containing Kera prescription train_tasks.json / val_tasks.json split files",
+        help="Directory containing Kera receipts train_tasks.json / val_tasks.json split files",
     )
     parser.add_argument(
         "--output_dir",
@@ -334,24 +334,24 @@ def main() -> None:
     cord_dir = _to_path(args.cord_dir)
     coco_dir = _to_path(args.coco_dir)
     doclaynet_dir = _to_path(args.doclaynet_dir)
-    kera_prescription_dir = _to_path(args.kera_prescription_dir)
-    kera_prescription_splits_dir = _to_path(args.kera_prescription_splits_dir)
+    kera_receipt_dir = _to_path(args.kera_receipt_dir)
+    kera_receipt_splits_dir = _to_path(args.kera_receipt_splits_dir)
     output_dir = Path(args.output_dir)
 
     # Validate that at least one source is provided
     if all(
         d is None
-        for d in [cord_dir, coco_dir, doclaynet_dir, kera_prescription_splits_dir]
+        for d in [cord_dir, coco_dir, doclaynet_dir, kera_receipt_splits_dir]
     ):
         parser.error(
             "At least one dataset source must be specified "
-            "(--cord_dir, --coco_dir, --doclaynet_dir, or --kera_prescription_splits_dir)"
+            "(--cord_dir, --coco_dir, --doclaynet_dir, or --kera_receipt_splits_dir)"
         )
 
     # Validate kera args come in pairs
-    if (kera_prescription_splits_dir is None) != (kera_prescription_dir is None):
+    if (kera_receipt_splits_dir is None) != (kera_receipt_dir is None):
         parser.error(
-            "--kera_prescription_dir and --kera_prescription_splits_dir "
+            "--kera_receipt_dir and --kera_receipt_splits_dir "
             "must both be provided or both omitted"
         )
 
@@ -359,8 +359,8 @@ def main() -> None:
         cord_dir=cord_dir,
         coco_dir=coco_dir,
         doclaynet_dir=doclaynet_dir,
-        kera_prescription_splits_dir=kera_prescription_splits_dir,
-        kera_prescription_dir=kera_prescription_dir,
+        kera_receipt_splits_dir=kera_receipt_splits_dir,
+        kera_receipt_dir=kera_receipt_dir,
         output_dir=output_dir,
     )
 

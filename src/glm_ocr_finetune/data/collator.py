@@ -204,7 +204,7 @@ class PrescriptionValidationCollator(DrugNameDataCollator):
 
 if __name__ == "__main__":
 
-    import time, torch
+    import torch
     from transformers import AutoProcessor
     from glm_ocr_finetune.modelling.loader import setup_glm_processor
 
@@ -219,15 +219,17 @@ if __name__ == "__main__":
             "content": [
                 {
                     "type": "image",
-                    "url": "sample-images/test_image.jpg"
-                },
-                {
-                    "type": "image",
-                    "url": "sample-images/test_image.jpg"
+                    "url": "sample/receipt1.jpg"
                 },
                 {
                     "type": "text",
-                    "text": "Extract drug names in json format with the following format: {\"drug_names\": [\"drug_name1\", \"drug_name2\", ...]}"
+                    "text": """Given a document image, extract the following information in JSON format:
+- is_health_receipt: A boolean indicating whether the image is a receipt.
+- total_amount: The total amount as a string (e.g. "12500"), or null if not found.
+- date: The date in ISO format (YYYY-MM-DD), or null.
+- patient_name: The patient or customer name, or null.
+- provider_info: The provider or merchant name and address, or null.
+- proof_of_payment: Description of payment evidence (stamp, signature), or null."""
                 }
             ],
         },
@@ -236,7 +238,7 @@ if __name__ == "__main__":
             "content": [
                 {
                     "type": "text",
-                    "text": "{\"drug_names\": [\"Aspirin\", \"Paracetamol\"]}"
+                    "text": """{"is_health_receipt": true, "total_amount": "15000", "date": "2026-02-05", "patient_name": "John Doe", "provider_info": "Clinique Example", "proof_of_payment": "PAYÉ stamp"}"""
                 }
             ],
         }

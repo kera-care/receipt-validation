@@ -24,9 +24,9 @@ mount_point="/mnt/datadrive"
 data_directory="${mount_point}/vision-llm-finetune-data"
 
 # ── Paths (edit these) ───────────────────────────────────────────────
-TRAIN_DATASET_PATH="${TRAIN_DATASET_PATH:-${data_directory}/prescription_validation/merged_dataset/train_tasks.json}"
+TRAIN_DATASET_PATH="${TRAIN_DATASET_PATH:-${data_directory}/receipt_validation/merged_dataset/train_tasks.json}"
 
-EVAL_DATASET_PATH="${EVAL_DATASET_PATH:-${data_directory}/prescription_validation/merged_dataset/val_tasks.json}"
+EVAL_DATASET_PATH="${EVAL_DATASET_PATH:-${data_directory}/receipt_validation/merged_dataset/val_tasks.json}"
 
 HF_CACHE_DIR="${HF_CACHE_DIR:-/mnt/datadrive/vision-llm-finetune-data/hf-cache}"
 mkdir -p "$HF_CACHE_DIR"
@@ -61,10 +61,10 @@ STDERR_LOG="logs/training_${TIMESTAMP}_stderr.log"
 
 if [ "${USE_LORA}" = "true" ]; then
     LEARNING_RATE="${LEARNING_RATE:-5e-5}"
-    OUTPUT_DIR="${OUTPUT_DIR:-outputs/glm-ocr-finetune-lora}-${NUM_EPOCHS}-epochs"
+    OUTPUT_DIR="${OUTPUT_DIR:-outputs/glm-ocr-receipt-finetune-lora}-${NUM_EPOCHS}-epochs"
 else
     LEARNING_RATE="${LEARNING_RATE:-2e-5}"
-    OUTPUT_DIR="${OUTPUT_DIR:-outputs/glm-ocr-finetune}-${NUM_EPOCHS}-epochs"
+    OUTPUT_DIR="${OUTPUT_DIR:-outputs/glm-ocr-receipt-finetune}-${NUM_EPOCHS}-epochs"
 fi
 
 # ── Accelerate ───────────────────────────────────────────────────────

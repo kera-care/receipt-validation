@@ -1,3 +1,7 @@
+# Misc
+src/glm_ocr_finetune/extract_drug_names.py
+src/glm_ocr_finetune/run_extract_drug_names.sh
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[codz]
